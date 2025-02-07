@@ -15,18 +15,19 @@ Using targets:
 Using modules transform: auto
 
 Using plugins:
-  transform-class-static-block { ios, safari }
+  transform-class-static-block { ios < 16.4, safari < 16.4 }
   transform-private-property-in-object { ios < 15 }
-  transform-class-properties { ios < 15 }
+  syntax-class-properties
   transform-private-methods { ios < 15 }
   syntax-numeric-separator
   syntax-nullish-coalescing-operator
   syntax-optional-chaining
   syntax-json-strings
   syntax-optional-catch-binding
-  transform-parameters { ios, safari }
+  transform-parameters { ios < 16.3, safari < 16.3 }
   syntax-async-generators
   syntax-object-rest-spread
+  transform-unicode-property-regex { android, chrome, edge, firefox < 134, ios, opera, safari, samsung }
   transform-export-namespace-from { ios, safari }
   transform-modules-commonjs
   transform-dynamic-import

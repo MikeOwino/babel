@@ -20,6 +20,7 @@ Using plugins:
   syntax-optional-catch-binding
   syntax-async-generators
   syntax-object-rest-spread
+  transform-unicode-property-regex { node }
   transform-export-namespace-from { node < 13.2 }
   transform-modules-commonjs
   transform-dynamic-import

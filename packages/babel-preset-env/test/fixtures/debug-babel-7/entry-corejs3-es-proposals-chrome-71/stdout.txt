@@ -20,6 +20,7 @@ Using plugins:
   syntax-optional-catch-binding
   syntax-async-generators
   syntax-object-rest-spread
+  transform-unicode-property-regex { chrome }
   transform-export-namespace-from { chrome < 72 }
   transform-modules-commonjs
   transform-dynamic-import
