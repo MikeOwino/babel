@@ -1,8 +1,14 @@
 import "shelljs/make.js";
 import path from "path";
-import { execFileSync } from "child_process";
-import { readFileSync, writeFileSync, readdirSync } from "fs";
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  existsSync,
+  mkdirSync,
+} from "fs";
 import semver from "semver";
+import { execaSync } from "execa";
 
 /**
  * @type {import("shelljs")}
@@ -21,18 +27,6 @@ const target = new Proxy(global.target, {
 });
 const SOURCES = ["packages", "codemods", "eslint"];
 
-const EslintArgs = [
-  "eslint",
-  "scripts",
-  "benchmark",
-  ...SOURCES,
-  "*.{js,cjs,mjs,ts}",
-  "--format",
-  "codeframe",
-  "--ext",
-  ".js,.cjs,.mjs,.ts",
-];
-
 const YARN_PATH = shell.which("yarn").stdout;
 const NODE_PATH = process.execPath; // `yarn node` is so slow on Windows
 
@@ -42,7 +36,7 @@ function print(...msgs) {
   console.log.apply(console, msgs);
 }
 
-function exec(executable, args, cwd, inheritStdio = true) {
+function exec(executable, args, cwd, inheritStdio = true, noExit = false) {
   print(
     `${executable
       .replaceAll(YARN_PATH, "yarn")
@@ -50,27 +44,29 @@ function exec(executable, args, cwd, inheritStdio = true) {
   );
 
   try {
-    return execFileSync(executable, args, {
+    return execaSync(executable, args, {
       stdio: inheritStdio ? "inherit" : undefined,
       cwd: cwd && path.resolve(cwd),
       env: process.env,
-    });
+    }).stdout;
   } catch (error) {
-    if (inheritStdio && error.status != 0) {
+    if (inheritStdio && error.exitCode !== 0) {
       console.error(
         new Error(
-          `\ncommand: ${executable} ${args.join(" ")}\ncode: ${error.status}`
+          `\ncommand: ${executable} ${args.join(" ")}\ncode: ${error.exitCode}`
         )
       );
-      // eslint-disable-next-line no-process-exit
-      process.exit(error.status);
+      if (!noExit) {
+        // eslint-disable-next-line n/no-process-exit
+        process.exit(error.exitCode);
+      }
     }
     throw error;
   }
 }
 
-function yarn(args, cwd, inheritStdio) {
-  return exec(YARN_PATH, args, cwd, inheritStdio);
+function yarn(args, cwd, inheritStdio, noExit) {
+  return exec(YARN_PATH, args, cwd, inheritStdio, noExit);
 }
 
 function node(args, cwd, inheritStdio) {
@@ -89,7 +85,7 @@ function env(fun, env) {
  */
 
 target["clean-all"] = function () {
-  shell.rm("-rf", ["node_modules", "package-lock.json", ".changelog"]);
+  shell.rm("-rf", ["package-lock.json", ".changelog"]);
 
   SOURCES.forEach(source => {
     shell.rm("-rf", `${source}/*/test/tmp`);
@@ -98,6 +94,14 @@ target["clean-all"] = function () {
 
   target["clean"]();
   target["clean-lib"]();
+  target["clean-node-modules"]();
+};
+
+target["clean-node-modules"] = function () {
+  shell.rm("-rf", "node_modules");
+  SOURCES.forEach(source => {
+    shell.rm("-rf", `${source}/*/node_modules`);
+  });
 };
 
 target["clean"] = function () {
@@ -123,6 +127,9 @@ target["clean-lib"] = function () {
     "-rf",
     SOURCES.map(source => `${source}/*/lib`)
   );
+
+  // re-generate the necessary lib/package.json files
+  node(["scripts/set-module-type.js"]);
 };
 
 target["clean-runtime-helpers"] = function () {
@@ -134,6 +141,8 @@ target["clean-runtime-helpers"] = function () {
     "packages/babel-runtime-corejs2/helpers/**/*.mjs",
     "packages/babel-runtime-corejs3/helpers/**/*.mjs",
     "packages/babel-runtime-corejs2/core-js",
+    "packages/babel-runtime-corejs3/core-js",
+    "packages/babel-runtime-corejs3/core-js-stable",
   ]);
 };
 
@@ -142,7 +151,7 @@ target["clean-runtime-helpers"] = function () {
  */
 
 target["use-cjs"] = function () {
-  node(["scripts/set-module-type.js", "script"]);
+  node(["scripts/set-module-type.js", "commonjs"]);
 
   target["bootstrap"]();
 };
@@ -169,7 +178,7 @@ target["bootstrap"] = function () {
 target["build"] = function () {
   target["build-no-bundle"]();
 
-  if (process.env.BABEL_COVERAGE != "true") {
+  if (process.env.BABEL_COVERAGE !== "true") {
     target["build-standalone"]();
   }
 };
@@ -186,7 +195,6 @@ target["build-bundle"] = function () {
 
   yarn(["gulp", "build"]);
 
-  target["build-flow-typings"]();
   target["build-dist"]();
 };
 
@@ -203,7 +211,6 @@ target["build-no-bundle"] = function () {
     { BABEL_ENV: "development" }
   );
 
-  target["build-flow-typings"]();
   target["build-dist"]();
 };
 
@@ -226,7 +233,7 @@ target["prepublish"] = function () {
   if (process.env.BABEL_8_BREAKING) {
     node(["scripts/set-module-type.js", "module"]);
   } else {
-    node(["scripts/set-module-type.js", "script"]);
+    node(["scripts/set-module-type.js", "commonjs"]);
   }
 
   target["bootstrap-only"]();
@@ -248,6 +255,8 @@ target["prepublish-build"] = function () {
   target["clean-lib"]();
   target["clean-runtime-helpers"]();
 
+  node(["scripts/generators/npm-ignore.js"]);
+
   env(
     () => {
       target["build-bundle"]();
@@ -264,6 +273,7 @@ target["prepublish-build"] = function () {
       target["prepublish-build-standalone"]();
       target["clone-license"]();
       target["prepublish-prepare-dts"]();
+      target["build-flow-typings"]();
     },
     {
       NODE_ENV: "production",
@@ -285,20 +295,32 @@ target["prepublish-build-standalone"] = function () {
 };
 
 target["prepublish-prepare-dts"] = function () {
+  target["clean-ts"]();
   target["tscheck"]();
+  target["prepublish-prepare-dts-no-clean"]();
+};
 
+target["prepublish-prepare-dts-no-clean"] = function () {
   yarn(["gulp", "bundle-dts"]);
-
   target["build-typescript-legacy-typings"]();
+  yarn(["tsc", "-p", "tsconfig.dts-bundles.json"]);
 };
 
 target["tscheck"] = function () {
   target["generate-tsconfig"]();
+  node(["scripts/parallel-tsc/tsc.js", "."]);
+  target["tscheck-helpers"]();
+};
 
-  // ts doesn't generate declaration files after we remove the output directory by manually when incremental==true
+target["tscheck-helpers"] = function () {
+  yarn(["tsc", "-p", "./packages/babel-helpers/src/helpers/tsconfig.json"]);
+};
+
+target["clean-ts"] = function () {
+  // ts doesn't generate declaration files after we remove the output directory manually when incremental==true
   shell.rm("-rf", "tsconfig.tsbuildinfo");
+  shell.rm("-rf", "*/*/tsconfig.tsbuildinfo");
   shell.rm("-rf", "dts");
-  yarn(["tsc", "-b", "."]);
 };
 
 target["generate-tsconfig"] = function () {
@@ -329,34 +351,92 @@ target["clone-license"] = function () {
  * DEV
  */
 
-target["lint"] = function () {
-  env(
-    () => {
-      yarn(EslintArgs);
-    },
-    {
-      BABEL_ENV: "test",
-    }
+function eslint(...extraArgs) {
+  const eslintArgs = ["--format", "codeframe", ...extraArgs.filter(Boolean)];
+
+  const packagesPackages = readdirSync("packages").filter(n =>
+    existsSync(`packages/${n}/package.json`)
   );
+  const chunks = [];
+  // Linting everything at the same time needs too much memory and crashes
+  // Do it in batches packages
+  for (let i = 0, chunkSize = 40; i < packagesPackages.length; i += chunkSize) {
+    if (packagesPackages.length - i === 1) {
+      // Only one package remaining
+      chunks.push([`packages/${packagesPackages[i]}/**/*`]);
+    } else {
+      chunks.push([
+        `packages/{${packagesPackages.slice(i, i + chunkSize)}}/**/*`,
+      ]);
+    }
+  }
+  const rest = [
+    "eslint",
+    "codemods",
+    "scripts",
+    "benchmark",
+    "*.{js,cjs,mjs,ts}",
+  ];
+  chunks.push(rest);
+
+  if (process.env.ESLINT_GO_BRRRR) {
+    // Run as a single process. Needs a lot of memory (12GB).
+    env(() => yarn(["eslint", "packages", ...rest, ...eslintArgs]), {
+      BABEL_ENV: "test",
+      NODE_OPTIONS: "--max-old-space-size=16384",
+    });
+  } else {
+    let err = null;
+    for (const chunk of chunks) {
+      try {
+        env(
+          () =>
+            yarn(
+              ["eslint", ...chunk, ...eslintArgs],
+              undefined,
+              undefined,
+              true
+            ),
+          { BABEL_ENV: "test" }
+        );
+      } catch (e) {
+        err = e;
+      }
+    }
+    // eslint-disable-next-line n/no-process-exit
+    if (err) process.exit(err.exitCode);
+  }
+}
+
+target["lint"] = function () {
+  env(() => target["tscheck"](), { TSCHECK_SILENT: "true" });
+  eslint();
+  target["lint-prettier"]();
+};
+
+target["lint-ci"] = function () {
+  target["tscheck"]();
+  eslint();
+  target["lint-prettier"]();
+  target["prepublish-prepare-dts-no-clean"]();
+};
+
+target["lint-prettier"] = function () {
+  yarn(["prettier", ".", "--check"]);
 };
 
 target["fix"] = function () {
-  target["fix-json"]();
   target["fix-js"]();
+  target["fix-prettier"]();
 };
 
 target["fix-js"] = function () {
-  yarn([...EslintArgs, "--fix"]);
+  env(() => target["tscheck"](), { TSCHECK_SILENT: "true" });
+  eslint("--fix");
 };
 
-target["fix-json"] = function () {
-  yarn([
-    "prettier",
-    `{${SOURCES.join(",")}}/*/test/fixtures/**/options.json`,
-    "--write",
-    "--loglevel",
-    "warn",
-  ]);
+target["fix-prettier"] = function () {
+  yarn(["prettier", ".", "--write"]);
 };
 
 target["watch"] = function () {
@@ -407,7 +487,8 @@ function bootstrapParserTests(name, repoURL, subPaths) {
   const dir = "./build/" + name.toLowerCase();
 
   shell.rm("-rf", dir);
-  shell.mkdir("-p", "build");
+  print("mkdir -p build");
+  mkdirSync("build", { recursive: true });
 
   exec("git", [
     "clone",
@@ -456,14 +537,15 @@ target["new-version-checklist"] = function () {
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!                                                   !!!!!!
-!!!!!!         Write any message that should             !!!!!!
-!!!!!!            block the release here                 !!!!!!
+!!!!!! Write any important message here, and change the  !!!!!!
+!!!!!! if (0) above to if (1)                            !!!!!!
+!!!!!!                                                   !!!!!!
 !!!!!!                                                   !!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     `.trim()
     );
-    // eslint-disable-next-line no-process-exit
+    // eslint-disable-next-line n/no-process-exit
     process.exit(1);
   }
 };
@@ -475,7 +557,7 @@ target["new-version"] = function () {
   yarn(["release-tool", "version", "-f", "@babel/standalone"]);
 };
 
-target["new-babel-8-version-prepare"] = function () {
+target["new-babel-8-version"] = function () {
   exec("git", ["pull", "--rebase"]);
 
   const pkg = JSON.parse(readFileSync("./package.json", "utf8"));
@@ -484,29 +566,67 @@ target["new-babel-8-version-prepare"] = function () {
   writeFileSync("./package.json", JSON.stringify(pkg, null, 2) + "\n");
   exec("git", ["add", "./package.json"]);
   exec("git", ["commit", "-m", "Bump Babel 8 version to " + nextVersion]);
+  exec("git", ["tag", `v${nextVersion}`, "-m", `v${nextVersion}`]);
 
   return nextVersion;
 };
 
-target["new-babel-8-version"] = function () {
-  const nextVersion = target["new-babel-8-version-prepare"]();
-
-  exec("git", ["checkout", "-b", "release/v" + nextVersion]);
+function bumpVersionsToBabel8Pre() {
+  const pkg = JSON.parse(readFileSync("./package.json", "utf8"));
+  const nextVersion = pkg.version_babel8;
 
   SOURCES.forEach(source => {
     readdirSync(source).forEach(name => {
       const pkgPath = `${source}/${name}/package.json`;
-      try {
+      if (existsSync(pkgPath)) {
         const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-        pkg.peerDependencies["@babel/core"] = `^${nextVersion}`;
+        if (pkg.peerDependencies?.["@babel/core"]) {
+          pkg.peerDependencies["@babel/core"] = `^${nextVersion}`;
+        }
+        const babel8Condition = pkg.conditions?.["BABEL_8_BREAKING"][0];
+        if (babel8Condition?.peerDependencies?.["@babel/core"]) {
+          babel8Condition.peerDependencies["@babel/core"] = `^${nextVersion}`;
+        }
+        if (name === "babel-eslint-plugin") {
+          babel8Condition.peerDependencies["@babel/eslint-parser"] =
+            `^${nextVersion}`;
+        }
         writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-      } catch {}
+      }
     });
   });
 
-  yarn(["release-tool", "version", nextVersion, "--all"]);
+  env(() => yarn(["install"]), {
+    YARN_ENABLE_IMMUTABLE_INSTALLS: false,
+  });
 
-  console.log(
-    `Run \`git push upstream main release/v${nextVersion} --follow-tags\` to push the changes on GitHub and release them.`
-  );
+  return nextVersion;
+}
+
+target["new-babel-8-version-create-commit-ci"] = function () {
+  const nextVersion = bumpVersionsToBabel8Pre();
+  yarn([
+    "release-tool",
+    "version",
+    nextVersion,
+    "--all",
+    "--tag-version-prefix",
+    "tmp.v",
+    "--yes",
+  ]);
+};
+
+target["new-babel-8-version-create-commit"] = function () {
+  const nextVersion = bumpVersionsToBabel8Pre();
+  exec("git", ["checkout", "-b", `release/temp/v${nextVersion}`]);
+  yarn([
+    "release-tool",
+    "version",
+    nextVersion,
+    "--all",
+    "--tag-version-prefix",
+    "tmp.v",
+  ]);
+
+  console.log("Run `BABEL_8_BREAKING=true make publish` to finish publishing");
 };

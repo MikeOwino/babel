@@ -13,9 +13,12 @@ Using targets:
 Using modules transform: auto
 
 Using plugins:
-  transform-class-static-block { chrome < 94, edge < 94, firefox < 93, ie, ios, safari }
+  transform-duplicate-named-capturing-groups-regex { chrome < 126, edge < 126, firefox < 129, ie, ios < 17.4, safari < 17.4 }
+  transform-regexp-modifiers { chrome < 125, edge < 125, firefox < 132, ie, ios, safari }
+  transform-unicode-sets-regex { chrome < 112, edge < 112, firefox < 116, ie, ios < 17, safari < 17 }
+  transform-class-static-block { chrome < 94, edge < 94, firefox < 93, ie, ios < 16.4, safari < 16.4 }
   transform-private-property-in-object { chrome < 91, edge < 91, firefox < 90, ie, ios < 15, safari < 15 }
-  transform-class-properties { chrome < 74, edge < 79, firefox < 90, ie, ios < 15, safari < 14.1 }
+  transform-class-properties { chrome < 74, edge < 79, firefox < 90, ie, ios < 14.5, safari < 14.1 }
   transform-private-methods { chrome < 84, edge < 84, firefox < 90, ie, ios < 15, safari < 15 }
   transform-numeric-separator { chrome < 75, edge < 79, firefox < 70, ie, ios < 13, safari < 13 }
   transform-logical-assignment-operators { chrome < 85, edge < 85, firefox < 79, ie, ios < 14, safari < 14 }
@@ -23,7 +26,7 @@ Using plugins:
   transform-optional-chaining { chrome < 91, edge < 91, firefox < 74, ie, ios < 13.4, safari < 13.1 }
   transform-json-strings { chrome < 66, edge < 79, firefox < 62, ie, ios < 12, safari < 12 }
   transform-optional-catch-binding { chrome < 66, edge < 79, firefox < 58, ie, ios < 11.3, safari < 11.1 }
-  transform-parameters { edge < 18, firefox < 53, ie, ios, safari }
+  transform-parameters { edge < 18, firefox < 53, ie, ios < 16.3, safari < 16.3 }
   transform-async-generator-functions { chrome < 63, edge < 79, firefox < 57, ie, ios < 12, safari < 12 }
   transform-object-rest-spread { chrome < 60, edge < 79, firefox < 55, ie, ios < 11.3, safari < 11.1 }
   transform-dotall-regex { chrome < 62, edge < 79, firefox < 78, ie, ios < 11.3, safari < 11.1 }
@@ -51,9 +54,10 @@ Using plugins:
   transform-typeof-symbol { ie, safari < 9 }
   transform-new-target { edge < 14, ie, ios < 10, safari < 10 }
   transform-regenerator { firefox < 53, ie, ios < 10, safari < 10 }
-  transform-export-namespace-from { chrome < 72, edge < 79, firefox < 80, ie, ios, safari }
+  transform-export-namespace-from { chrome < 72, edge < 79, firefox < 80, ie, ios < 14.5, safari < 14.1 }
   transform-modules-commonjs
   transform-dynamic-import
+  syntax-top-level-await
   syntax-import-meta
 corejs2: `DEBUG` option
 

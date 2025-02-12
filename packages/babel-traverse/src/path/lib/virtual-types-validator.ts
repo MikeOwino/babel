@@ -1,4 +1,4 @@
-import type NodePath from "../index";
+import type NodePath from "../index.ts";
 import {
   isBinding,
   isBlockScoped as nodeIsBlockScoped,
@@ -24,69 +24,79 @@ import {
 } from "@babel/types";
 import type * as t from "@babel/types";
 const { isCompatTag } = react;
-import type { VirtualTypeAliases } from "./virtual-types";
+import type { VirtualTypeAliases } from "./virtual-types.ts";
+
+type Opts<Obj> = Partial<{
+  [Prop in keyof Obj]: Obj[Prop] extends t.Node
+    ? t.Node
+    : Obj[Prop] extends t.Node[]
+      ? t.Node[]
+      : Obj[Prop];
+}>;
 
 export interface VirtualTypeNodePathValidators {
-  isBindingIdentifier<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & VirtualTypeAliases["BindingIdentifier"]>;
-  isBlockScoped(opts?: object): boolean;
+  isBindingIdentifier(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["BindingIdentifier"]>,
+  ): this is NodePath<VirtualTypeAliases["BindingIdentifier"]>;
+  isBlockScoped(opts?: Opts<VirtualTypeAliases["BlockScoped"]>): boolean;
   /**
    * @deprecated
    */
-  isExistentialTypeParam<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & VirtualTypeAliases["ExistentialTypeParam"]>;
-  isExpression<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & t.Expression>;
-  isFlow<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & t.Flow>;
-  isForAwaitStatement<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & VirtualTypeAliases["ForAwaitStatement"]>;
-  isGenerated(opts?: object): boolean;
+  isExistentialTypeParam(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["ExistentialTypeParam"]>,
+  ): this is NodePath<VirtualTypeAliases["ExistentialTypeParam"]>;
+  isExpression(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["Expression"]>,
+  ): this is NodePath<t.Expression>;
+  isFlow(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["Flow"]>,
+  ): this is NodePath<t.Flow>;
+  isForAwaitStatement(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["ForAwaitStatement"]>,
+  ): this is NodePath<VirtualTypeAliases["ForAwaitStatement"]>;
+  isGenerated(opts?: VirtualTypeAliases["Generated"]): boolean;
   /**
    * @deprecated
    */
-  isNumericLiteralTypeAnnotation(opts?: object): void;
-  isPure(opts?: object): boolean;
-  isReferenced(opts?: object): boolean;
-  isReferencedIdentifier<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & VirtualTypeAliases["ReferencedIdentifier"]>;
-  isReferencedMemberExpression<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & VirtualTypeAliases["ReferencedMemberExpression"]>;
-  isRestProperty<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & t.RestProperty>;
-  isScope<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & VirtualTypeAliases["Scope"]>;
-  isSpreadProperty<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & t.SpreadProperty>;
-  isStatement<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & t.Statement>;
-  isUser(opts?: object): boolean;
-  isVar<T extends t.Node>(
-    this: NodePath<T>,
-    opts?: object,
-  ): this is NodePath<T & VirtualTypeAliases["Var"]>;
+  isNumericLiteralTypeAnnotation(
+    opts?: VirtualTypeAliases["NumericLiteralTypeAnnotation"],
+  ): void;
+  isPure(opts?: VirtualTypeAliases["Pure"]): boolean;
+  isReferenced(opts?: VirtualTypeAliases["Referenced"]): boolean;
+  isReferencedIdentifier(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["ReferencedIdentifier"]>,
+  ): this is NodePath<VirtualTypeAliases["ReferencedIdentifier"]>;
+  isReferencedMemberExpression(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["ReferencedMemberExpression"]>,
+  ): this is NodePath<VirtualTypeAliases["ReferencedMemberExpression"]>;
+  isRestProperty(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["RestProperty"]>,
+  ): this is NodePath<t.RestProperty>;
+  isScope(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["Scope"]>,
+  ): this is NodePath<VirtualTypeAliases["Scope"]>;
+  isSpreadProperty(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["SpreadProperty"]>,
+  ): this is NodePath<t.SpreadProperty>;
+  isStatement(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["Statement"]>,
+  ): this is NodePath<t.Statement>;
+  isUser(opts?: VirtualTypeAliases["User"]): boolean;
+  isVar(
+    this: NodePath,
+    opts?: Opts<VirtualTypeAliases["Var"]>,
+  ): this is NodePath<VirtualTypeAliases["Var"]>;
 }
 
 export function isReferencedIdentifier(this: NodePath, opts?: any): boolean {
@@ -182,33 +192,32 @@ export function isFlow(this: NodePath): boolean {
 
 // TODO: 7.0 Backwards Compat
 export function isRestProperty(this: NodePath): boolean {
-  return (
-    nodeIsRestElement(this.node) &&
-    this.parentPath &&
-    this.parentPath.isObjectPattern()
-  );
+  return nodeIsRestElement(this.node) && this.parentPath?.isObjectPattern();
 }
 
 export function isSpreadProperty(this: NodePath): boolean {
-  return (
-    nodeIsRestElement(this.node) &&
-    this.parentPath &&
-    this.parentPath.isObjectExpression()
-  );
+  return nodeIsRestElement(this.node) && this.parentPath?.isObjectExpression();
 }
 
 export function isForAwaitStatement(this: NodePath): boolean {
   return isForOfStatement(this.node, { await: true });
 }
 
-export function isExistentialTypeParam(this: NodePath): void {
-  throw new Error(
-    "`path.isExistentialTypeParam` has been renamed to `path.isExistsTypeAnnotation()` in Babel 7.",
-  );
-}
+if (!process.env.BABEL_8_BREAKING && !USE_ESM) {
+  // eslint-disable-next-line no-restricted-globals
+  exports.isExistentialTypeParam = function isExistentialTypeParam(
+    this: NodePath,
+  ): void {
+    throw new Error(
+      "`path.isExistentialTypeParam` has been renamed to `path.isExistsTypeAnnotation()` in Babel 7.",
+    );
+  };
 
-export function isNumericLiteralTypeAnnotation(this: NodePath): void {
-  throw new Error(
-    "`path.isNumericLiteralTypeAnnotation()` has been renamed to `path.isNumberLiteralTypeAnnotation()` in Babel 7.",
-  );
+  // eslint-disable-next-line no-restricted-globals
+  exports.isNumericLiteralTypeAnnotation =
+    function isNumericLiteralTypeAnnotation(this: NodePath): void {
+      throw new Error(
+        "`path.isNumericLiteralTypeAnnotation()` has been renamed to `path.isNumberLiteralTypeAnnotation()` in Babel 7.",
+      );
+    };
 }

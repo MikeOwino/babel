@@ -45,6 +45,9 @@ const customTypes = {
   ClassPrivateProperty: {
     computed: "'false'",
   },
+  NumericLiteral: {
+    value: "a non-negative finite `number`",
+  },
 };
 const APIHistory = {
   ClassProperty: [["v7.6.0", "Supports `static`"]],
@@ -195,7 +198,7 @@ function printNodeFields(key, readme) {
           fieldDescription.push(
             " (default: `" + util.inspect(defaultValue) + "`"
           );
-          if (t.BUILDER_KEYS[key].indexOf(field) < 0) {
+          if (!t.BUILDER_KEYS[key].includes(field)) {
             fieldDescription.push(", excluded from builder function");
           }
           fieldDescription.push(")");

@@ -1,18 +1,14 @@
-import {
-  CLASS_ELEMENT_KIND_ACCESSOR,
-  CLASS_ELEMENT_FLAG_STATIC,
-  type ClassElementTypes,
-} from "./scopeflags";
-import type { Position } from "./location";
-import { Errors } from "../parse-error";
-import type Tokenizer from "../tokenizer";
+import { ClassElementType } from "./scopeflags.ts";
+import type { Position } from "./location.ts";
+import { Errors } from "../parse-error.ts";
+import type Tokenizer from "../tokenizer/index.ts";
 
 export class ClassScope {
   // A list of private named declared in the current class
   privateNames: Set<string> = new Set();
 
   // A list of private getters of setters without their counterpart
-  loneAccessors: Map<string, ClassElementTypes> = new Map();
+  loneAccessors: Map<string, ClassElementType> = new Map();
 
   // A list of private names used before being defined, mapping to
   // their position.
@@ -51,8 +47,7 @@ export default class ClassScopeHandler {
           current.undefinedPrivateNames.set(name, loc);
         }
       } else {
-        this.parser.raise(Errors.InvalidPrivateFieldResolution, {
-          at: loc,
+        this.parser.raise(Errors.InvalidPrivateFieldResolution, loc, {
           identifierName: name,
         });
       }
@@ -61,21 +56,21 @@ export default class ClassScopeHandler {
 
   declarePrivateName(
     name: string,
-    elementType: ClassElementTypes,
+    elementType: ClassElementType,
     loc: Position,
   ) {
     const { privateNames, loneAccessors, undefinedPrivateNames } =
       this.current();
     let redefined = privateNames.has(name);
 
-    if (elementType & CLASS_ELEMENT_KIND_ACCESSOR) {
+    if (elementType & ClassElementType.KIND_ACCESSOR) {
       const accessor = redefined && loneAccessors.get(name);
       if (accessor) {
-        const oldStatic = accessor & CLASS_ELEMENT_FLAG_STATIC;
-        const newStatic = elementType & CLASS_ELEMENT_FLAG_STATIC;
+        const oldStatic = accessor & ClassElementType.FLAG_STATIC;
+        const newStatic = elementType & ClassElementType.FLAG_STATIC;
 
-        const oldKind = accessor & CLASS_ELEMENT_KIND_ACCESSOR;
-        const newKind = elementType & CLASS_ELEMENT_KIND_ACCESSOR;
+        const oldKind = accessor & ClassElementType.KIND_ACCESSOR;
+        const newKind = elementType & ClassElementType.KIND_ACCESSOR;
 
         // The private name can be duplicated only if it is used by
         // two accessors with different kind (get and set), and if
@@ -89,8 +84,7 @@ export default class ClassScopeHandler {
     }
 
     if (redefined) {
-      this.parser.raise(Errors.PrivateNameRedeclaration, {
-        at: loc,
+      this.parser.raise(Errors.PrivateNameRedeclaration, loc, {
         identifierName: name,
       });
     }
@@ -109,8 +103,7 @@ export default class ClassScopeHandler {
       classScope.undefinedPrivateNames.set(name, loc);
     } else {
       // top-level
-      this.parser.raise(Errors.InvalidPrivateFieldResolution, {
-        at: loc,
+      this.parser.raise(Errors.InvalidPrivateFieldResolution, loc, {
         identifierName: name,
       });
     }

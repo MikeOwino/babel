@@ -1,5 +1,17 @@
-import { template, types as t } from "@babel/core";
-import type { NodePath } from "@babel/traverse";
+import { template, types as t, type NodePath } from "@babel/core";
+
+import { registerGlobalType } from "./global-types.ts";
+import { EXPORTED_CONST_ENUMS_IN_NAMESPACE } from "./const-enum.ts";
+
+export function getFirstIdentifier(node: t.TSEntityName): t.Identifier {
+  if (t.isIdentifier(node)) {
+    return node;
+  }
+  // In Babel 8 TSEntityName also includes ThisExpression, however, a namespace
+  // id must not be a ThisExpression or a TSQualifiedName { left: ThisExpression }.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  return getFirstIdentifier((node as t.TSQualifiedName).left);
+}
 
 export default function transpileNamespace(
   path: NodePath<t.TSModuleDeclaration>,
@@ -21,18 +33,16 @@ export default function transpileNamespace(
       );
   }
 
-  const name = path.node.id.name;
-  const value = handleNested(path, t.cloneNode(path.node, true));
-  const bound = path.scope.hasOwnBinding(name);
-  if (path.parent.type === "ExportNamedDeclaration") {
-    if (!bound) {
-      path.parentPath.insertAfter(value);
-      path.replaceWith(getDeclaration(name));
-      path.scope.registerDeclaration(path.parentPath);
-    } else {
-      path.parentPath.replaceWith(value);
-    }
-  } else if (bound) {
+  const name = getFirstIdentifier(path.node.id).name;
+  const value = handleNested(path, path.node);
+  if (value === null) {
+    // This means that `path` is a type-only namespace.
+    // We call `registerGlobalType` here to allow it to be stripped.
+    const program = path.findParent(p => p.isProgram());
+    registerGlobalType(program.scope, name);
+
+    path.remove();
+  } else if (path.scope.hasOwnBinding(name)) {
     path.replaceWith(value);
   } else {
     path.scope.registerDeclaration(
@@ -119,20 +129,51 @@ function handleNested(
   path: NodePath,
   node: t.TSModuleDeclaration,
   parentExport?: t.Expression,
-) {
+): t.Statement | null {
   const names = new Set();
-  const realName = node.id;
-  t.assertIdentifier(realName);
+  const realName =
+    !process.env.BABEL_8_BREAKING || t.isIdentifier(node.id)
+      ? (node.id as t.Identifier)
+      : getFirstIdentifier(node.id as unknown as t.TSQualifiedName);
 
   const name = path.scope.generateUid(realName.name);
 
-  const namespaceTopLevel: t.Statement[] = t.isTSModuleBlock(node.body)
-    ? node.body.body
-    : // We handle `namespace X.Y {}` as if it was
-      //   namespace X {
-      //     export namespace Y {}
-      //   }
-      [t.exportNamedDeclaration(node.body)];
+  const body = node.body;
+  let id = node.id;
+  let namespaceTopLevel: t.Statement[];
+  if (process.env.BABEL_8_BREAKING) {
+    if (t.isTSQualifiedName(id)) {
+      // @ts-ignore(Babel 7 vs Babel 8) Babel 8 AST shape
+      namespaceTopLevel = body.body;
+      while (t.isTSQualifiedName(id)) {
+        namespaceTopLevel = [
+          t.exportNamedDeclaration(
+            t.tsModuleDeclaration(
+              // @ts-ignore(Babel 7 vs Babel 8) Babel 8 AST shape
+              t.cloneNode(id.right),
+              t.tsModuleBlock(namespaceTopLevel),
+            ),
+          ),
+        ];
+
+        // @ts-ignore(Babel 7 vs Babel 8) Babel 8 AST shape
+        id = id.left;
+      }
+    } else {
+      // @ts-ignore(Babel 7 vs Babel 8) Babel 8 AST shape
+      namespaceTopLevel = body.body;
+    }
+  } else {
+    namespaceTopLevel = t.isTSModuleBlock(body)
+      ? body.body
+      : // We handle `namespace X.Y {}` as if it was
+        //   namespace X {
+        //     export namespace Y {}
+        //   }
+        [t.exportNamedDeclaration(body)];
+  }
+
+  let isEmpty = true;
 
   for (let i = 0; i < namespaceTopLevel.length; i++) {
     const subNode = namespaceTopLevel[i];
@@ -146,26 +187,31 @@ function handleNested(
         }
 
         const transformed = handleNested(path, subNode);
-        const moduleName = subNode.id.name;
-        if (names.has(moduleName)) {
-          namespaceTopLevel[i] = transformed;
-        } else {
-          names.add(moduleName);
-          namespaceTopLevel.splice(
-            i++,
-            1,
-            getDeclaration(moduleName),
-            transformed,
-          );
+        if (transformed !== null) {
+          isEmpty = false;
+          const moduleName = subNode.id.name;
+          if (names.has(moduleName)) {
+            namespaceTopLevel[i] = transformed;
+          } else {
+            names.add(moduleName);
+            namespaceTopLevel.splice(
+              i++,
+              1,
+              getDeclaration(moduleName),
+              transformed,
+            );
+          }
         }
         continue;
       }
       case "TSEnumDeclaration":
       case "FunctionDeclaration":
       case "ClassDeclaration":
+        isEmpty = false;
         names.add(subNode.id.name);
         continue;
       case "VariableDeclaration": {
+        isEmpty = false;
         // getBindingIdentifiers returns an object without prototype.
         // eslint-disable-next-line guard-for-in
         for (const name in t.getBindingIdentifiers(subNode)) {
@@ -174,6 +220,7 @@ function handleNested(
         continue;
       }
       default:
+        isEmpty &&= t.isTypeScript(subNode);
         // Neither named declaration nor export, continue to next item.
         continue;
       case "ExportNamedDeclaration":
@@ -187,8 +234,11 @@ function handleNested(
     // Transform the export declarations that occur inside of a namespace.
     switch (subNode.declaration.type) {
       case "TSEnumDeclaration":
+        EXPORTED_CONST_ENUMS_IN_NAMESPACE.add(subNode.declaration);
+      // fallthrough
       case "FunctionDeclaration":
       case "ClassDeclaration": {
+        isEmpty = false;
         const itemName = subNode.declaration.id.name;
         names.add(itemName);
         namespaceTopLevel.splice(
@@ -206,6 +256,7 @@ function handleNested(
         break;
       }
       case "VariableDeclaration": {
+        isEmpty = false;
         const nodes = handleVariableDeclaration(
           subNode.declaration,
           name,
@@ -225,21 +276,29 @@ function handleNested(
           subNode.declaration,
           t.identifier(name),
         );
-        const moduleName = subNode.declaration.id.name;
-        if (names.has(moduleName)) {
-          namespaceTopLevel[i] = transformed;
+        if (transformed !== null) {
+          isEmpty = false;
+          const moduleName = subNode.declaration.id.name;
+          if (names.has(moduleName)) {
+            namespaceTopLevel[i] = transformed;
+          } else {
+            names.add(moduleName);
+            namespaceTopLevel.splice(
+              i++,
+              1,
+              getDeclaration(moduleName),
+              transformed,
+            );
+          }
         } else {
-          names.add(moduleName);
-          namespaceTopLevel.splice(
-            i++,
-            1,
-            getDeclaration(moduleName),
-            transformed,
-          );
+          namespaceTopLevel.splice(i, 1);
+          i--;
         }
       }
     }
   }
+
+  if (isEmpty) return null;
 
   // {}
   let fallthroughValue: t.Expression = t.objectExpression([]);

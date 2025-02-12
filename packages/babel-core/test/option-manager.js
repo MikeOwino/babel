@@ -1,7 +1,7 @@
 import * as babel from "../lib/index.js";
 import path from "path";
 import { fileURLToPath } from "url";
-import { readFileSync } from "fs";
+import { itBabel7, itBabel7NoESM } from "$repo-utils";
 
 const cwd = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,20 +13,8 @@ function loadOptionsAsync(opts) {
   return babel.loadOptionsAsync({ cwd, ...opts });
 }
 
-let USE_ESM = false;
-try {
-  const type = readFileSync(
-    new URL("../../../.module-type", import.meta.url),
-    "utf-8",
-  ).trim();
-  USE_ESM = type === "module";
-} catch {}
-
-const itBabel7 = process.env.BABEL_8_BREAKING ? it.skip : it;
-const itBabel7cjs = process.env.BABEL_8_BREAKING || USE_ESM ? it.skip : it;
-
 describe("option-manager", () => {
-  itBabel7cjs("throws for babel 5 plugin", () => {
+  itBabel7NoESM("throws for babel 5 plugin", () => {
     return expect(() => {
       loadOptions({
         plugins: [({ Plugin }) => new Plugin("object-assign", {})],
@@ -101,7 +89,7 @@ describe("option-manager", () => {
           ],
         });
       }).toThrow(
-        /Duplicate plugin\/preset detected.*Duplicates detected are.*my-plugin.*my-plugin/ms,
+        /Duplicate plugin\/preset detected.*Duplicates detected are.*my-plugin.*my-plugin/s,
       );
       expect(calls).toEqual([]);
     });
@@ -214,7 +202,7 @@ describe("option-manager", () => {
   });
 
   describe("mergeOptions", () => {
-    it("throws for removed babel 5 options", () => {
+    it("throws for removed babel 5 options: randomOption", () => {
       return expect(() => {
         loadOptions({
           randomOption: true,
@@ -222,14 +210,13 @@ describe("option-manager", () => {
       }).toThrow(/Unknown option: .randomOption/);
     });
 
-    it("throws for removed babel 5 options", () => {
+    it("throws for removed babel 5 options: auxiliaryComment", () => {
       return expect(() => {
         loadOptions({
           auxiliaryComment: true,
           blacklist: true,
         });
       }).toThrow(
-        // eslint-disable-next-line max-len
         /Using removed Babel 5 option: .auxiliaryComment - Use `auxiliaryCommentBefore` or `auxiliaryCommentAfter`/,
       );
     });
@@ -261,7 +248,7 @@ describe("option-manager", () => {
       expect(options.presets).toHaveLength(0);
     });
 
-    itBabel7("es2015_named shuold throw", async () => {
+    itBabel7("es2015_named should throw", async () => {
       await expect(
         loadOptionsAsync({
           presets: [

@@ -1,13 +1,12 @@
-import { createRequire, Module } from "module";
+import { Module } from "module";
 import path from "path";
 import fs from "fs";
 import child from "child_process";
-import { fileURLToPath } from "url";
+import { USE_ESM, commonJS, describeGte } from "$repo-utils";
 
-const dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
+const { __dirname, require } = commonJS(import.meta.url);
 
-const testCacheFilename = path.join(dirname, ".index.babel");
+const testCacheFilename = path.join(__dirname, ".index.babel");
 const testFile = require.resolve("./fixtures/babelrc/es2015");
 const testFileLog = require.resolve("./fixtures/babelrc/log");
 const testFileMjs = require.resolve("./fixtures/mjs-babelrc/es2015");
@@ -16,6 +15,7 @@ const testFileMjsContent = fs.readFileSync(testFileMjs, "utf-8");
 
 const piratesPath = require.resolve("pirates");
 const smsPath = require.resolve("source-map-support");
+const sms2Path = require.resolve("@cspotcode/source-map-support");
 
 const defaultOptions = {
   exts: [".js", ".jsx", ".es6", ".es", ".mjs", ".cjs"],
@@ -35,14 +35,6 @@ function resetCache() {
 }
 
 const OLD_JEST_MOCKS = !!jest.doMock;
-
-let USE_ESM = false;
-try {
-  const type = fs
-    .readFileSync(new URL("../../../.module-type", import.meta.url), "utf-8")
-    .trim();
-  USE_ESM = type === "module";
-} catch {}
 
 describe("@babel/register", function () {
   let currentHook, currentOptions, sourceMapSupport;
@@ -77,6 +69,10 @@ describe("@babel/register", function () {
   if (OLD_JEST_MOCKS) {
     jest.doMock("pirates", () => mocks["pirates"]);
     jest.doMock("source-map-support", () => mocks["source-map-support"]);
+    jest.doMock(
+      "@cspotcode/source-map-support",
+      () => mocks["source-map-support"],
+    );
 
     afterEach(() => {
       jest.resetModules();
@@ -109,6 +105,7 @@ describe("@babel/register", function () {
           Object.defineProperty(Module, "_cache", {
             get: () => emptyInitialCache,
             set(value) {
+              // eslint-disable-next-line jest/no-standalone-expect
               expect(isEmptyObj(value)).toBe(true);
 
               Object.defineProperty(Module, "_cache", {
@@ -156,13 +153,7 @@ describe("@babel/register", function () {
     });
   }
 
-  const nodeGte12 = (fn, ...args) => {
-    // "minNodeVersion": "8.0.0" <-- For Ctrl+F when dropping node 6-8-10
-    const testFn = /v(?:6|8|10)\./.test(process.version) ? fn.skip : fn;
-    testFn(...args);
-  };
-
-  nodeGte12(describe, "worker", () => {
+  describeGte("12.0.0")("worker", () => {
     if (!OLD_JEST_MOCKS) {
       beforeEach(() => {
         Object.defineProperty(Module, "_cache", {
@@ -170,6 +161,9 @@ describe("@babel/register", function () {
           value: {
             [piratesPath]: { exports: mocks["pirates"] },
             [smsPath]: { exports: mocks["source-map-support"] },
+            [sms2Path]: {
+              exports: mocks["source-map-support"],
+            },
           },
         });
       });
@@ -301,7 +295,11 @@ describe("@babel/register", function () {
         const output = await spawnNodeAsync(
           [testFileLog],
           path.dirname(testFileLog),
-          { NODE_OPTIONS: `-r ${registerFile}` },
+          {
+            ...process.env,
+            NODE_OPTIONS:
+              `-r ${registerFile} ` + (process.env.NODE_OPTIONS || ""),
+          },
         );
 
         expect(output.trim()).toMatchInlineSnapshot(
@@ -313,7 +311,11 @@ describe("@babel/register", function () {
         const output = await spawnNodeAsync(
           [testFileLog],
           path.dirname(testFileLog),
-          { NODE_OPTIONS: `--require ${registerFile}` },
+          {
+            ...process.env,
+            NODE_OPTIONS:
+              `--require ${registerFile} ` + (process.env.NODE_OPTIONS || ""),
+          },
         );
 
         expect(output.trim()).toMatchInlineSnapshot(
@@ -408,8 +410,17 @@ describe("@babel/register", function () {
   }
 });
 
-function spawnNodeAsync(args, cwd = dirname, env) {
-  const spawn = child.spawn(process.execPath, args, { cwd, env });
+function spawnNodeAsync(args, cwd = __dirname, env = process.env) {
+  const spawn = child.spawn(process.execPath, args, {
+    cwd,
+    env: {
+      ...env,
+      ...(parseInt(process.versions.node) >= 22 && {
+        NODE_OPTIONS:
+          "--disable-warning=ExperimentalWarning " + (env.NODE_OPTIONS || ""),
+      }),
+    },
+  });
 
   let output = "";
   let callback;

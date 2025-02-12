@@ -23,9 +23,7 @@ import {
   thisExpression,
 } from "@babel/types";
 import annotateAsPure from "@babel/helper-annotate-as-pure";
-import type { NodePath, Visitor } from "@babel/traverse";
-import type { PluginPass } from "@babel/core";
-import type * as t from "@babel/types";
+import type { PluginPass, NodePath, Visitor, types as t } from "@babel/core";
 
 type ElementState = {
   tagExpr: t.Expression; // tag node,
@@ -43,10 +41,12 @@ export interface Options {
   compat?: boolean;
   pure?: string;
   throwIfNamespace?: boolean;
+  useSpread?: boolean;
+  useBuiltIns?: boolean;
 }
 
 export default function (opts: Options) {
-  const visitor: Visitor<PluginPass> = {};
+  const visitor: Visitor<PluginPass<Options>> = {};
 
   visitor.JSXNamespacedName = function (path) {
     if (opts.throwIfNamespace) {
@@ -242,7 +242,7 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
 
   function buildOpeningElementAttributes(
     attribs: (t.JSXAttribute | t.JSXSpreadAttribute)[],
-    pass: PluginPass,
+    pass: PluginPass<Options>,
   ): t.Expression {
     let _props: (t.ObjectProperty | t.SpreadElement)[] = [];
     const objs: t.Expression[] = [];

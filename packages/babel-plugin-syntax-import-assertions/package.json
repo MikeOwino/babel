@@ -1,6 +1,6 @@
 {
   "name": "@babel/plugin-syntax-import-assertions",
-  "version": "7.20.0",
+  "version": "7.26.0",
   "description": "Allow parsing of the module assertion attributes in the import statement",
   "repository": {
     "type": "git",
@@ -30,21 +30,28 @@
   "author": "The Babel Team (https://babel.dev/team)",
   "conditions": {
     "BABEL_8_BREAKING": [
-      null,
+      {
+        "engines": {
+          "node": "^18.20.0 || ^20.17.0 || >=22.8.0"
+        }
+      },
       {
         "exports": null
       }
     ],
     "USE_ESM": [
+      null,
       {
-        "type": "module"
-      },
-      null
+        "type": "commonjs"
+      }
     ]
   },
   "exports": {
-    ".": "./lib/index.js",
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./package.json": "./package.json"
   },
-  "type": "commonjs"
+  "type": "module"
 }

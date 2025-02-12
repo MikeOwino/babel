@@ -1,13 +1,16 @@
-import { parse } from "@babel/parser";
+import { parse, parseExpression } from "@babel/parser";
 import * as t from "@babel/types";
 import fs from "fs";
 import path from "path";
 import fixtures from "@babel/helper-fixtures";
 import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
-import { fileURLToPath } from "url";
+import { commonJS, describeBabel7NoESM, itBabel7, itBabel8 } from "$repo-utils";
+import { encode } from "@jridgewell/sourcemap-codec";
 
-import _generate, { CodeGenerator } from "../lib/index.js";
+import _generate from "../lib/index.js";
 const generate = _generate.default || _generate;
+
+const { __dirname, require } = commonJS(import.meta.url);
 
 describe("generation", function () {
   it("multiple sources", function () {
@@ -39,6 +42,7 @@ describe("generation", function () {
     expect(generated.map).toMatchInlineSnapshot(`
       Object {
         "file": undefined,
+        "ignoreList": Array [],
         "mappings": "AAAA,SAASA,EAAEA,CAAEC,GAAG,EAAE;EAAEC,OAAO,CAACC,GAAG,CAACF,GAAG,CAAC;AAAE;ACAtCD,EAAE,CAAC,OAAO,CAAC",
         "names": Array [
           "hi",
@@ -327,6 +331,7 @@ describe("generation", function () {
       Object {
         "__mergedMap": Object {
           "file": undefined,
+          "ignoreList": Array [],
           "mappings": "AAAA,SAASA,IAAGA,CAAA,EAAG;EAAEC,IAAG;AAAE",
           "names": Array [
             "foo",
@@ -347,6 +352,7 @@ describe("generation", function () {
       }",
         "decodedMap": Object {
           "file": undefined,
+          "ignoreList": Array [],
           "mappings": Array [
             Array [
               Array [
@@ -422,6 +428,7 @@ describe("generation", function () {
         },
         "map": Object {
           "file": undefined,
+          "ignoreList": Array [],
           "mappings": "AAAA,SAASA,IAAGA,CAAA,EAAG;EAAEC,IAAG;AAAE",
           "names": Array [
             "foo",
@@ -788,7 +795,7 @@ describe("generation", function () {
     `);
   });
 
-  it("comments without loc3", () => {
+  itBabel7("comments without loc3", () => {
     const ast = parse(
       `
         /** This describes how the endpoint is implemented when the lease is deployed */
@@ -815,6 +822,37 @@ describe("generation", function () {
         /** RANDOM_PORT - Describes an endpoint that becomes a Kubernetes NodePort */
         RANDOM_PORT = 1,
         UNRECOGNIZED = -1,
+      }"
+    `);
+  });
+
+  itBabel8("comments without loc3", () => {
+    const ast = parse(
+      `
+        /** This describes how the endpoint is implemented when the lease is deployed */
+        export enum Endpoint_Kind {
+          /** SHARED_HTTP - Describes an endpoint that becomes a Kubernetes Ingress */
+          SHARED_HTTP = 0,
+          /** RANDOM_PORT - Describes an endpoint that becomes a Kubernetes NodePort */
+          RANDOM_PORT = 1,
+          UNRECOGNIZED = -1,
+        }
+      `,
+      { sourceType: "module", plugins: ["typescript"] },
+    );
+
+    for (const comment of ast.comments) {
+      comment.loc = undefined;
+    }
+
+    expect(generate(ast).code).toMatchInlineSnapshot(`
+      "/** This describes how the endpoint is implemented when the lease is deployed */
+      export enum Endpoint_Kind {
+        /** SHARED_HTTP - Describes an endpoint that becomes a Kubernetes Ingress */
+        SHARED_HTTP = 0,
+        /** RANDOM_PORT - Describes an endpoint that becomes a Kubernetes NodePort */
+        RANDOM_PORT = 1,
+        UNRECOGNIZED = -1
       }"
     `);
   });
@@ -898,6 +936,7 @@ describe("generation", function () {
     ).toMatchInlineSnapshot(`
       Object {
         "file": undefined,
+        "ignoreList": Array [],
         "mappings": "AAAA,IAAIA,CAAC,GAAGC,CAAA,IAAAA,CAAA,GAAJA,CAAC",
         "names": Array [
           "t",
@@ -912,6 +951,61 @@ describe("generation", function () {
         ],
         "version": 3,
       }
+    `);
+  });
+
+  it("should not throw when loc.column === 0 with inputSourceMap", () => {
+    const ast = parseExpression("a(\n)");
+
+    ast.loc.end.column = 0;
+
+    expect(
+      generate(ast, {
+        sourceMaps: true,
+        inputSourceMap: {
+          version: 3,
+          names: [],
+          sources: ["input.js"],
+          // [ generatedCodeColumn, sourceIndex, sourceCodeLine, sourceCodeColumn, nameIndex ]
+          mappings: encode([[0, 0, 1, 0]]),
+        },
+      }).rawMappings,
+    ).toMatchInlineSnapshot(`
+      Array [
+        Object {
+          "generated": Object {
+            "column": 0,
+            "line": 1,
+          },
+          "name": "a",
+          "original": Object {
+            "column": 0,
+            "line": 1,
+          },
+          "source": "input.js",
+        },
+        Object {
+          "generated": Object {
+            "column": 1,
+            "line": 1,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 0,
+            "line": 1,
+          },
+          "source": "input.js",
+        },
+        Object {
+          "generated": Object {
+            "column": 2,
+            "line": 1,
+          },
+          "name": undefined,
+          "original": undefined,
+          "source": undefined,
+        },
+      ]
     `);
   });
 });
@@ -1134,7 +1228,7 @@ describe("programmatic generation", function () {
         ]),
       );
       const output = generate(typeStatement).code;
-      expect(output).toBe("((number & boolean) | null)[]");
+      expect(output).toBe("(number & boolean | null)[]");
     });
     it("wraps around intersection for array", () => {
       const typeStatement = t.tsArrayType(
@@ -1266,7 +1360,7 @@ describe("programmatic generation", function () {
         t.sequenceExpression([t.objectExpression([]), t.numericLiteral(1)]),
       );
       const output = generate(arrowFunctionExpression).code;
-      expect(output).toBe("() => (({}), 1)");
+      expect(output).toBe("() => ({}, 1)");
     });
   });
 
@@ -1407,37 +1501,133 @@ describe("programmatic generation", function () {
         line*/"
       `);
     });
+  });
 
-    it("comment in arrow function with return type", () => {
-      const arrow = t.arrowFunctionExpression(
-        [t.identifier("x"), t.identifier("y")],
-        t.identifier("z"),
-      );
-      arrow.returnType = t.tsTypeAnnotation(t.tsAnyKeyword());
-      arrow.returnType.trailingComments = [
-        { type: "CommentBlock", value: "foo" },
-        // This comment is dropped. There is no way to safely print it
-        // as a trailingComment of the return type.
-        { type: "CommentBlock", value: "new\nline" },
-      ];
-      expect(generate(arrow).code).toMatchInlineSnapshot(
-        `"(x, y): any /*foo*/ => z"`,
-      );
-    });
+  it("comment in arrow function with return type", () => {
+    const arrow = t.arrowFunctionExpression(
+      [t.identifier("x"), t.identifier("y")],
+      t.identifier("z"),
+    );
+    arrow.returnType = t.tsTypeAnnotation(t.tsAnyKeyword());
+    arrow.returnType.trailingComments = [
+      { type: "CommentBlock", value: "foo" },
+      // This comment is dropped. There is no way to safely print it
+      // as a trailingComment of the return type.
+      { type: "CommentBlock", value: "new\nline" },
+    ];
+    expect(generate(arrow).code).toMatchInlineSnapshot(
+      `"(x, y): any /*foo*/ => z"`,
+    );
+  });
+
+  it("multi-line leading comment after return", () => {
+    const val = t.identifier("val");
+    val.leadingComments = [{ type: "CommentBlock", value: "new\nline" }];
+    expect(generate(t.returnStatement(val)).code).toMatch(`return (
+  /*new
+  line*/
+  val
+);`);
+  });
+
+  it("multi-line leading comment after return 2", () => {
+    const ast = parse(
+      `return (
+        /*new
+        line*/ val);`,
+      {
+        allowReturnOutsideFunction: true,
+      },
+    );
+    // Remove `parenthesized`
+    ast.program.body[0].argument.extra = null;
+    expect(generate(ast).code).toMatchInlineSnapshot(`
+        "return (
+          /*new
+          line*/
+          val
+        );"
+      `);
+  });
+
+  it("multi-line leading comment after return compact", () => {
+    const val = t.identifier("val");
+    val.leadingComments = [{ type: "CommentBlock", value: "new\nline" }];
+    expect(
+      generate(t.returnStatement(val), {
+        compact: true,
+      }).code,
+    ).toMatchInlineSnapshot(`
+        "return(/*new
+        line*/val);"
+      `);
+  });
+
+  it("multi-line leading comment after return concise", () => {
+    const val = t.identifier("val");
+    val.leadingComments = [{ type: "CommentBlock", value: "new\nline" }];
+    expect(
+      generate(t.returnStatement(val), {
+        concise: true,
+      }).code,
+    ).toMatchInlineSnapshot(`
+      "return ( /*new
+      line*/ val );"
+    `);
+  });
+
+  it("correctly indenting when `retainLines`", () => {
+    const ast = parse(
+      `
+export const App = () => {
+  return (
+      /**
+        * First
+        */
+      2
+  );
+};
+
+/**
+  * Second
+  */`,
+      {
+        sourceType: "module",
+      },
+    );
+
+    expect(generate(ast, { retainLines: true }).code).toMatchInlineSnapshot(`
+      "
+      export const App = () => {
+        return (
+          /**
+            * First
+            */
+          2);
+
+      };
+
+      /**
+        * Second
+        */"
+    `);
   });
 });
 
-describe("CodeGenerator", function () {
+describeBabel7NoESM("CodeGenerator", function () {
   it("generate", function () {
+    const CodeGenerator = require("../lib/index.js").CodeGenerator;
     const codeGen = new CodeGenerator(t.numericLiteral(123));
     const code = codeGen.generate().code;
     expect(parse(code).program.body[0].expression.value).toBe(123);
   });
 });
 
-const suites = (fixtures.default || fixtures)(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures"),
-);
+const suites = (fixtures.default || fixtures)(path.join(__dirname, "fixtures"));
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 suites.forEach(function (testSuite) {
   describe("generation/" + testSuite.title, function () {
@@ -1463,10 +1653,7 @@ suites.forEach(function (testSuite) {
             };
             const actualAst = parse(actualCode, parserOpts);
             const options = {
-              sourceFileName: path.relative(
-                path.dirname(fileURLToPath(import.meta.url)),
-                actual.loc,
-              ),
+              sourceFileName: path.relative(__dirname, actual.loc),
               ...task.options,
               sourceMaps: task.sourceMap ? true : task.options.sourceMaps,
             };
@@ -1481,7 +1668,20 @@ suites.forEach(function (testSuite) {
                 throwMsg === true ? undefined : throwMsg,
               );
             } else {
+              jest.spyOn(console, "warn").mockImplementation(() => {});
+
               const result = run();
+
+              if (
+                options.warns &&
+                (!process.env.IS_PUBLISH || !options.noWarnInPublishBuild)
+              ) {
+                expect(console.warn).toHaveBeenCalledWith(
+                  expect.stringContaining(options.warns),
+                );
+              } else {
+                expect(console.warn).not.toHaveBeenCalled();
+              }
 
               if (options.sourceMaps) {
                 try {

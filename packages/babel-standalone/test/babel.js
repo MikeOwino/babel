@@ -8,6 +8,26 @@ describe("@babel/standalone", () => {
     Babel = require("../babel.js");
   });
 
+  describe("export packages", () => {
+    it("list", () => {
+      expect(Object.keys(Babel.packages)).toMatchInlineSnapshot(`
+        Array [
+          "generator",
+          "parser",
+          "template",
+          "traverse",
+          "types",
+        ]
+      `);
+    });
+
+    it("they work", () => {
+      const generate = Babel.packages.generator.default;
+      const parser = Babel.packages.parser;
+      expect(generate(parser.parse("foo")).code).toBe("foo;");
+    });
+  });
+
   it("handles the es2015-no-commonjs preset", () => {
     const output = Babel.transform('const getMessage = () => "Hello World"', {
       presets: ["es2015-no-commonjs"],
@@ -71,6 +91,7 @@ describe("@babel/standalone", () => {
       "const someDiv = <div>{getMessage()}</div>",
       {
         presets: [["react", { runtime: "classic" }]],
+        envName: "production",
       },
     ).code;
     expect(output).toBe(
@@ -172,7 +193,9 @@ describe("@babel/standalone", () => {
       const output = Babel.transform("[].includes(2)", {
         sourceType: "module",
         targets: { ie: 11 },
-        presets: [["env", { useBuiltIns: "usage", corejs: 3, modules: false }]],
+        presets: [
+          ["env", { useBuiltIns: "usage", corejs: "3.0", modules: false }],
+        ],
       }).code;
 
       expect(output).toMatchInlineSnapshot(`
@@ -244,15 +267,43 @@ describe("@babel/standalone", () => {
         }),
       ).not.toThrow();
     });
-    it("#12815 - unicode property letter short alias should be transformed", () => {
+    it("#12815 - unicode property letter short alias should be transformed (legacy package)", () => {
       expect(() =>
         Babel.transform("/\\p{L}/u", {
           plugins: ["proposal-unicode-property-regex"],
         }),
       ).not.toThrow();
     });
+    it("#12815 - unicode property letter short alias should be transformed", () => {
+      expect(() =>
+        Babel.transform("/\\p{L}/u", {
+          plugins: ["transform-unicode-property-regex"],
+        }),
+      ).not.toThrow();
+    });
     it("#14425 - numeric separators should be parsed correctly", () => {
       expect(() => Babel.transform("1_1", {})).not.toThrow();
+    });
+    it("#15674 - supports unicode sets regex", () => {
+      expect(
+        Babel.transform("/[\\w--[b]]/v", {
+          plugins: ["transform-unicode-sets-regex"],
+        }).code,
+      ).toMatchInlineSnapshot(`"/[0-9A-Z_ac-z]/u;"`);
+
+      expect(
+        Babel.transform("/[\\w--[b]]/v", {
+          targets: { chrome: 90 },
+          presets: [["env", { modules: false }]],
+        }).code,
+      ).toMatchInlineSnapshot(`"/[0-9A-Z_ac-z]/u;"`);
+
+      expect(
+        Babel.transform("/[\\w--[b]]/v", {
+          targets: { chrome: 113 },
+          presets: [["env", { modules: false }]],
+        }).code,
+      ).toMatchInlineSnapshot(`"/[\\\\w--[b]]/v;"`);
     });
   });
 });

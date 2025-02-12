@@ -1,34 +1,18 @@
 import cp from "child_process";
 import util from "util";
 import path from "path";
-import fs from "fs";
-import { fileURLToPath } from "url";
-import { createRequire } from "module";
+import { USE_ESM, commonJS } from "$repo-utils";
 
 import * as babel from "../../lib/index.js";
 
-const require = createRequire(import.meta.url);
-const dirname = path.dirname(fileURLToPath(import.meta.url));
+const { require, __dirname } = commonJS(import.meta.url);
 
 // "minNodeVersion": "10.0.0" <-- For Ctrl+F when dropping node 10
 export const supportsESM = parseInt(process.versions.node) >= 12;
 
-export const outputType = (() => {
-  try {
-    return fs
-      .readFileSync(
-        new URL("../../../../.module-type", import.meta.url),
-        "utf-8",
-      )
-      .trim();
-  } catch (_) {
-    return "script";
-  }
-})();
+export const outputType = USE_ESM ? "module" : "script";
 
 export const isMJS = file => path.extname(file) === ".mjs";
-
-export const itESM = supportsESM ? it : it.skip;
 
 export function skipUnsupportedESM(name) {
   if (!supportsESM) {
@@ -40,7 +24,7 @@ export function skipUnsupportedESM(name) {
   return false;
 }
 
-export function loadOptionsAsync({ filename, cwd = dirname }, mjs) {
+export function loadOptionsAsync({ filename, cwd = __dirname }, mjs) {
   if (mjs) {
     // import() crashes with jest
     return spawn("load-options-async", filename, cwd);
@@ -52,6 +36,11 @@ export function loadOptionsAsync({ filename, cwd = dirname }, mjs) {
 export function spawnTransformAsync() {
   // import() crashes with jest
   return spawn("compile-async");
+}
+
+export function spawnTransformAsyncParallel() {
+  // import() crashes with jest
+  return spawn("compile-async-parallel");
 }
 
 export function spawnTransformSync() {
@@ -71,7 +60,7 @@ async function spawn(runner, filename, cwd = process.cwd()) {
   );
 
   const EXPERIMENTAL_WARNING =
-    /\(node:\d+\) ExperimentalWarning: The ESM module loader is experimental\./;
+    /\(node:\d+\) ExperimentalWarning: (The ESM module loader is experimental\.|CommonJS module .+? is loading ES Module .+? using require\(\)\.\nSupport for loading ES Module in require\(\) is an experimental feature and might change at any time\n\(Use `node --trace-warnings ...` to show where the warning was created\))/;
 
   if (stderr.replace(EXPERIMENTAL_WARNING, "").trim()) {
     throw new Error(

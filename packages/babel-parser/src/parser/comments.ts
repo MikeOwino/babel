@@ -1,9 +1,9 @@
 /*:: declare var invariant; */
 
-import BaseParser from "./base";
-import type { Comment, Node } from "../types";
+import BaseParser from "./base.ts";
+import type { Comment, Node, Identifier } from "../types.ts";
 import * as charCodes from "charcodes";
-import type { Undone } from "./node";
+import type { Undone } from "./node.ts";
 
 /**
  * A whitespace token containing comments
@@ -102,7 +102,12 @@ function adjustInnerComments(
 export default class CommentsParser extends BaseParser {
   addComment(comment: Comment): void {
     if (this.filename) comment.loc.filename = this.filename;
-    this.state.comments.push(comment);
+    const { commentsLen } = this.state;
+    if (this.comments.length !== commentsLen) {
+      this.comments.length = commentsLen;
+    }
+    this.comments.push(comment);
+    this.state.commentsLen++;
   }
 
   /**
@@ -162,7 +167,10 @@ export default class CommentsParser extends BaseParser {
     } else {
       /*:: invariant(commentWS.containingNode !== null) */
       const { containingNode: node, start: commentStart } = commentWS;
-      if (this.input.charCodeAt(commentStart - 1) === charCodes.comma) {
+      if (
+        this.input.charCodeAt(this.offsetToSourcePos(commentStart) - 1) ===
+        charCodes.comma
+      ) {
         // If a commentWhitespace follows a comma and the containingNode allows
         // list structures with trailing comma, merge it to the trailingComment
         // of the last non-null list element
@@ -192,6 +200,16 @@ export default class CommentsParser extends BaseParser {
           case "ExportNamedDeclaration":
           case "ImportDeclaration":
             adjustInnerComments(node, node.specifiers, commentWS);
+            break;
+          case "TSEnumDeclaration":
+            if (!process.env.BABEL_8_BREAKING) {
+              adjustInnerComments(node, node.members, commentWS);
+            } else {
+              setInnerComments(node, comments);
+            }
+            break;
+          case "TSEnumBody":
+            adjustInnerComments(node, node.members, commentWS);
             break;
           default: {
             setInnerComments(node, comments);
@@ -243,6 +261,38 @@ export default class CommentsParser extends BaseParser {
     const commentWS = commentStack[length - 1];
     if (commentWS.leadingNode === node) {
       commentWS.leadingNode = null;
+    }
+  }
+
+  /* eslint-disable no-irregular-whitespace */
+  /**
+   * Reset previous node leading comments, assuming that `node` is a
+   * single-token node. Used in import phase modifiers parsing. We parse
+   * `module` in `import module foo from ...` as an identifier but may
+   * reinterpret it into a phase modifier later. In this case the identifier is
+   * not part of the AST and we should sync the knowledge to commentStacks
+   *
+   * For example, when parsing
+   * ```
+   * import /* 1 *​/ module a from "a";
+   * ```
+   * the comment whitespace `/* 1 *​/` has trailing node Identifier(module). When
+   * we see that `module` is not a default import binding, we mark `/* 1 *​/` as
+   * inner comments of the ImportDeclaration. So `/* 1 *​/` should be detached from
+   * the Identifier node.
+   *
+   * @param node the last finished AST node _before_ current token
+   */
+  /* eslint-enable no-irregular-whitespace */
+  resetPreviousIdentifierLeadingComments(node: Identifier) {
+    const { commentStack } = this.state;
+    const { length } = commentStack;
+    if (length === 0) return;
+
+    if (commentStack[length - 1].trailingNode === node) {
+      commentStack[length - 1].trailingNode = null;
+    } else if (length >= 2 && commentStack[length - 2].trailingNode === node) {
+      commentStack[length - 2].trailingNode = null;
     }
   }
 

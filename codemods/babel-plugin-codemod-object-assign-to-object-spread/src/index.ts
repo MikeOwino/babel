@@ -1,9 +1,10 @@
-import syntaxObjectRestSpread from "@babel/plugin-syntax-object-rest-spread";
 import type { PluginAPI, PluginObject } from "@babel/core";
 
 export default function ({ types: t }: PluginAPI): PluginObject {
   return {
-    inherits: syntaxObjectRestSpread.default,
+    manipulateOptions: process.env.BABEL_8_BREAKING
+      ? undefined
+      : (_, parser) => parser.plugins.push("objectRestSpread"),
 
     visitor: {
       CallExpression(path) {

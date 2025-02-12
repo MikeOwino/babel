@@ -6,8 +6,7 @@ import {
   createClassFeaturePlugin,
   FEATURES,
 } from "@babel/helper-create-class-features-plugin";
-import legacyVisitor from "./transformer-legacy";
-import transformer2022_03 from "./transformer-2023-01";
+import legacyVisitor from "./transformer-legacy.ts";
 import type { Options as SyntaxOptions } from "@babel/plugin-syntax-decorators";
 
 interface Options extends SyntaxOptions {
@@ -18,7 +17,7 @@ interface Options extends SyntaxOptions {
 export type { Options };
 
 export default declare((api, options: Options) => {
-  api.assertVersion(7);
+  api.assertVersion(REQUIRED_VERSION(7));
 
   // Options are validated in @babel/plugin-syntax-decorators
   if (!process.env.BABEL_8_BREAKING) {
@@ -38,24 +37,28 @@ export default declare((api, options: Options) => {
       visitor: legacyVisitor,
     };
   } else if (
+    !version ||
+    version === "2018-09" ||
     version === "2021-12" ||
     version === "2022-03" ||
-    version === "2023-01"
+    version === "2023-01" ||
+    version === "2023-05" ||
+    version === "2023-11"
   ) {
-    return transformer2022_03(api, options, version);
-  } else if (!process.env.BABEL_8_BREAKING) {
-    api.assertVersion("^7.0.2");
+    api.assertVersion(REQUIRED_VERSION("^7.0.2"));
     return createClassFeaturePlugin({
       name: "proposal-decorators",
 
       api,
       feature: FEATURES.decorators,
       inherits: syntaxDecorators,
+      // @ts-expect-error version must not be "legacy" here
+      decoratorVersion: version,
       // loose: options.loose, Not supported
     });
   } else {
     throw new Error(
-      "The '.version' option must be one of 'legacy', '2021-12', '2022-03', or '2023-01'.",
+      "The '.version' option must be one of 'legacy', '2023-11', '2023-05', '2023-01', '2022-03', or '2021-12'.",
     );
   }
 });

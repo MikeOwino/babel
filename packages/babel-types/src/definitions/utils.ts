@@ -1,6 +1,6 @@
-import is from "../validators/is";
-import { validateField, validateChild } from "../validators/validate";
-import type * as t from "..";
+import is from "../validators/is.ts";
+import { validateField, validateChild } from "../validators/validate.ts";
+import type * as t from "../index.ts";
 
 export const VISITOR_KEYS: Record<string, string[]> = {};
 export const ALIAS_KEYS: Partial<Record<NodeTypesWithoutComment, string[]>> =
@@ -49,13 +49,14 @@ export type Validator = (
   | { oneOfNodeTypes: NodeTypes[] }
   | { oneOfNodeOrValueTypes: (NodeTypes | PrimitiveTypes)[] }
   | { shapeOf: { [x: string]: FieldOptions } }
-  | {}
+  | object
 ) &
   ((node: t.Node, key: string, val: any) => void);
 
 export type FieldOptions = {
   default?: string | number | boolean | [];
   optional?: boolean;
+  deprecated?: boolean;
   validate?: Validator;
 };
 
@@ -63,39 +64,35 @@ export function validate(validate: Validator): FieldOptions {
   return { validate };
 }
 
-export function typeIs(typeName: NodeTypes | NodeTypes[]) {
-  return typeof typeName === "string"
-    ? assertNodeType(typeName)
-    : assertNodeType(...typeName);
-}
-
-export function validateType(typeName: NodeTypes | NodeTypes[]) {
-  return validate(typeIs(typeName));
+export function validateType(...typeNames: NodeTypes[]) {
+  return validate(assertNodeType(...typeNames));
 }
 
 export function validateOptional(validate: Validator): FieldOptions {
   return { validate, optional: true };
 }
 
-export function validateOptionalType(
-  typeName: NodeTypes | NodeTypes[],
-): FieldOptions {
-  return { validate: typeIs(typeName), optional: true };
+export function validateOptionalType(...typeNames: NodeTypes[]): FieldOptions {
+  return { validate: assertNodeType(...typeNames), optional: true };
 }
 
 export function arrayOf(elementType: Validator): Validator {
   return chain(assertValueType("array"), assertEach(elementType));
 }
 
-export function arrayOfType(typeName: NodeTypes | NodeTypes[]) {
-  return arrayOf(typeIs(typeName));
+export function arrayOfType(...typeNames: NodeTypes[]) {
+  return arrayOf(assertNodeType(...typeNames));
 }
 
-export function validateArrayOfType(typeName: NodeTypes | NodeTypes[]) {
-  return validate(arrayOfType(typeName));
+export function validateArrayOfType(...typeNames: NodeTypes[]) {
+  return validate(arrayOfType(...typeNames));
 }
 
 export function assertEach(callback: Validator): Validator {
+  const childValidator = process.env.BABEL_TYPES_8_BREAKING
+    ? validateChild
+    : () => {};
+
   function validator(node: t.Node, key: string, val: any) {
     if (!Array.isArray(val)) return;
 
@@ -103,7 +100,7 @@ export function assertEach(callback: Validator): Validator {
       const subkey = `${key}[${i}]`;
       const v = val[i];
       callback(node, subkey, v);
-      if (process.env.BABEL_TYPES_8_BREAKING) validateChild(node, subkey, v);
+      childValidator(node, subkey, v);
     }
   }
   validator.each = callback;
@@ -112,7 +109,7 @@ export function assertEach(callback: Validator): Validator {
 
 export function assertOneOf(...values: Array<any>): Validator {
   function validate(node: any, key: string, val: any) {
-    if (values.indexOf(val) < 0) {
+    if (!values.includes(val)) {
       throw new TypeError(
         `Property ${key} expected value to be one of ${JSON.stringify(
           values,
@@ -268,7 +265,7 @@ export function chain(...fns: Array<Validator>): Validator {
   return validate;
 }
 
-const validTypeOpts = [
+const validTypeOpts = new Set([
   "aliases",
   "builder",
   "deprecatedAlias",
@@ -276,8 +273,13 @@ const validTypeOpts = [
   "inherits",
   "visitor",
   "validate",
-];
-const validFieldKeys = ["default", "optional", "validate"];
+]);
+const validFieldKeys = new Set([
+  "default",
+  "optional",
+  "deprecated",
+  "validate",
+]);
 
 const store = {} as Record<string, DefineTypeOpts>;
 
@@ -317,6 +319,7 @@ export default function defineType(type: string, opts: DefineTypeOpts = {}) {
         fields[key] = {
           default: Array.isArray(def) ? [] : def,
           optional: field.optional,
+          deprecated: field.deprecated,
           validate: field.validate,
         };
       }
@@ -329,7 +332,7 @@ export default function defineType(type: string, opts: DefineTypeOpts = {}) {
     opts.builder || inherits.builder || opts.visitor || [];
 
   for (const k of Object.keys(opts)) {
-    if (validTypeOpts.indexOf(k) === -1) {
+    if (!validTypeOpts.has(k)) {
       throw new Error(`Unknown type option "${k}" on ${type}`);
     }
   }
@@ -346,7 +349,7 @@ export default function defineType(type: string, opts: DefineTypeOpts = {}) {
   for (const key of Object.keys(fields)) {
     const field = fields[key];
 
-    if (field.default !== undefined && builder.indexOf(key) === -1) {
+    if (field.default !== undefined && !builder.includes(key)) {
       field.optional = true;
     }
     if (field.default === undefined) {
@@ -356,7 +359,7 @@ export default function defineType(type: string, opts: DefineTypeOpts = {}) {
     }
 
     for (const k of Object.keys(field)) {
-      if (validFieldKeys.indexOf(k) === -1) {
+      if (!validFieldKeys.has(k)) {
         throw new Error(`Unknown field key "${k}" on ${type}.${key}`);
       }
     }

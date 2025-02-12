@@ -1,5 +1,6 @@
 import { parse } from "@babel/parser";
 import * as t from "@babel/types";
+import { IS_BABEL_8 } from "$repo-utils";
 
 import _traverse, { NodePath } from "../lib/index.js";
 const traverse = _traverse.default || _traverse;
@@ -861,9 +862,9 @@ describe("scope", () => {
         expect(classMethod.scope.hasOwnBinding("foo")).toBe(true);
       });
       it("in static block", () => {
-        const staticBlock = getPath("(class { static { var foo; } })", {
-          plugins: ["classStaticBlock"],
-        }).get("body.0.expression.body.body.0");
+        const staticBlock = getPath("(class { static { var foo; } })").get(
+          "body.0.expression.body.body.0",
+        );
         expect(staticBlock.scope.hasOwnBinding("foo")).toBe(true);
       });
     });
@@ -949,9 +950,9 @@ describe("scope", () => {
         expect(classMethod.scope.hasOwnBinding("foo")).toBe(true);
       });
       it("in static block", () => {
-        const staticBlock = getPath("(class { static { let foo; } })", {
-          plugins: ["classStaticBlock"],
-        }).get("body.0.expression.body.body.0");
+        const staticBlock = getPath("(class { static { let foo; } })").get(
+          "body.0.expression.body.body.0",
+        );
         expect(staticBlock.scope.hasOwnBinding("foo")).toBe(true);
       });
       it("in block statement", () => {
@@ -1037,6 +1038,206 @@ describe("scope", () => {
           expect(path.parentPath.type).toBe("SwitchCase");
         },
       });
+    });
+
+    it(".shorthand after renaming `ObjectProperty`", () => {
+      const program = getPath(`
+         const { a } = b;
+         ({ a } = b);
+         c = { a };
+       `);
+      program.scope.rename("a");
+
+      const renamedPropertyMatcher = expect.objectContaining({
+        type: "ObjectProperty",
+        shorthand: false,
+        ...(IS_BABEL_8()
+          ? {}
+          : {
+              // eslint-disable-next-line jest/no-conditional-expect
+              extra: expect.objectContaining({ shorthand: false }),
+            }),
+        key: expect.objectContaining({ name: "a" }),
+        value: expect.objectContaining({
+          name: expect.not.stringMatching(/^a$/),
+        }),
+      });
+
+      const { body } = program.node;
+      expect(body[0].declarations[0].id.properties[0]).toStrictEqual(
+        renamedPropertyMatcher,
+      );
+      expect(body[1].expression.left.properties[0]).toStrictEqual(
+        renamedPropertyMatcher,
+      );
+      expect(body[2].expression.right.properties[0]).toStrictEqual(
+        renamedPropertyMatcher,
+      );
+
+      expect(String(program)).toMatchInlineSnapshot(`
+        "const {
+          a: _a
+        } = b;
+        ({
+          a: _a
+        } = b);
+        c = {
+          a: _a
+        };"
+      `);
+    });
+
+    it(".shorthand after renaming `ObjectProperty` - shadowed", () => {
+      const program = getPath(`
+         const a = 1;
+         {
+          const { b } = 2;
+          ({ b } = 3);
+          (_ = { b });
+        }
+       `);
+      program.scope.rename("a", "b");
+
+      const originalPropertyMatcher = expect.objectContaining({
+        type: "ObjectProperty",
+        shorthand: true,
+        ...(IS_BABEL_8()
+          ? {}
+          : {
+              // eslint-disable-next-line jest/no-conditional-expect
+              extra: expect.objectContaining({ shorthand: true }),
+            }),
+        key: expect.objectContaining({ name: "b" }),
+        value: expect.objectContaining({ name: "b" }),
+      });
+
+      const { body } = program.node;
+      expect(body[1].body[0].declarations[0].id.properties[0]).toStrictEqual(
+        originalPropertyMatcher,
+      );
+      expect(body[1].body[1].expression.left.properties[0]).toStrictEqual(
+        originalPropertyMatcher,
+      );
+      expect(body[1].body[2].expression.right.properties[0]).toStrictEqual(
+        originalPropertyMatcher,
+      );
+
+      expect(String(program)).toMatchInlineSnapshot(`
+        "const b = 1;
+        {
+          const {
+            b
+          } = 2;
+          ({
+            b
+          } = 3);
+          _ = {
+            b
+          };
+        }"
+      `);
+    });
+
+    it(`computed key should not be renamed`, () => {
+      const program = getPath(`
+        let x = 1
+        const foo = {
+          get [x]() {
+            return x
+          },
+        }`);
+      program.traverse({
+        Function(path) {
+          const bodyPath = path.get("body");
+          // create a declaration that shadows parent variable
+          bodyPath.scope.push({
+            id: t.identifier("x"),
+            kind: "const",
+            init: t.nullLiteral(),
+          });
+          // rename the new "local" declaration
+          bodyPath.scope.rename("x", "y");
+        },
+      });
+      expect(program + "").toMatchInlineSnapshot(`
+        "let x = 1;
+        const foo = {
+          get [x]() {
+            const y = null;
+            return y;
+          }
+        };"
+      `);
+    });
+
+    it(`decorators should not be renamed`, () => {
+      const program = getPath(
+        `
+        let x;
+        class Foo {
+          @x
+          [x]() {
+            return x;
+          }
+          @x
+          #method() {
+            return x;
+          }
+        }`,
+        {
+          plugins: [["decorators"]],
+        },
+      );
+
+      program.traverse({
+        Function(path) {
+          const bodyPath = path.get("body");
+          // create a declaration that shadows parent variable
+          bodyPath.scope.push({
+            id: t.identifier("x"),
+            kind: "const",
+            init: t.nullLiteral(),
+          });
+          // rename the new "local" declaration
+          bodyPath.scope.rename("x", "y");
+        },
+      });
+      expect(program + "").toMatchInlineSnapshot(`
+        "let x;
+        class Foo {
+          @x
+          [x]() {
+            const y = null;
+            return y;
+          }
+          @x
+          #method() {
+            const y = null;
+            return y;
+          }
+        }"
+      `);
+    });
+  });
+
+  describe("constantViolations", () => {
+    it("var redeclarations should not be treated as constantViolations", () => {
+      const program = getPath(`
+        function v() { }
+        function f() {
+          var a = 1;
+          var {
+            currentPoint: a,
+            centp: v,
+          } = {};
+        }
+      `);
+
+      const bindingV = program.scope.getBinding("v");
+      expect(bindingV.constantViolations).toHaveLength(0);
+
+      const bindingA = program.get("body.1.body").scope.getBinding("a");
+      expect(bindingA.constantViolations).toHaveLength(1);
     });
   });
 });

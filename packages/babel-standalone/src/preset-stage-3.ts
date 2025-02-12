@@ -1,4 +1,4 @@
-import * as babelPlugins from "./generated/plugins";
+import * as babelPlugins from "./generated/plugins.ts";
 
 export default (_: any, opts: any = {}) => {
   const {
@@ -9,9 +9,6 @@ export default (_: any, opts: any = {}) => {
   } = opts;
 
   const plugins = [
-    babelPlugins.syntaxImportAssertions,
-    babelPlugins.proposalUnicodeSetsRegex,
-    babelPlugins.proposalDuplicateNamedCapturingGroupsRegex,
     [
       babelPlugins.proposalDecorators,
       {
@@ -19,21 +16,29 @@ export default (_: any, opts: any = {}) => {
         decoratorsBeforeExport,
       },
     ],
-    babelPlugins.proposalRegexpModifiers,
+    babelPlugins.proposalExplicitResourceManagement,
     // These are Stage 4
     ...(process.env.BABEL_8_BREAKING
       ? []
       : [
-          babelPlugins.proposalExportNamespaceFrom,
-          babelPlugins.proposalLogicalAssignmentOperators,
-          [babelPlugins.proposalOptionalChaining, { loose }],
-          [babelPlugins.proposalNullishCoalescingOperator, { loose }],
-          [babelPlugins.proposalClassProperties, { loose }],
-          babelPlugins.proposalJsonStrings,
-          babelPlugins.proposalNumericSeparator,
-          [babelPlugins.proposalPrivateMethods, { loose }],
-          babelPlugins.proposalPrivatePropertyInObject,
-          babelPlugins.proposalClassStaticBlock,
+          babelPlugins.transformExportNamespaceFrom,
+          babelPlugins.transformLogicalAssignmentOperators,
+          [babelPlugins.transformOptionalChaining, { loose }],
+          [babelPlugins.transformNullishCoalescingOperator, { loose }],
+          [babelPlugins.transformClassProperties, { loose }],
+          babelPlugins.transformJsonStrings,
+          babelPlugins.transformJsonModules,
+          babelPlugins.transformNumericSeparator,
+          [babelPlugins.transformPrivateMethods, { loose }],
+          babelPlugins.transformPrivatePropertyInObject,
+          babelPlugins.transformClassStaticBlock,
+          babelPlugins.transformUnicodeSetsRegex,
+          babelPlugins.transformDuplicateNamedCapturingGroupsRegex,
+          babelPlugins.transformRegexpModifiers,
+          [
+            babelPlugins.syntaxImportAttributes,
+            { deprecatedAssertSyntax: true },
+          ],
         ]),
   ];
 

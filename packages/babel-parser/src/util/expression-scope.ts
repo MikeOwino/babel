@@ -1,7 +1,7 @@
-import { Errors, type ParseErrorConstructor } from "../parse-error";
-import type { Position } from "./location";
-import type { Node } from "../types";
-import type Tokenizer from "../tokenizer";
+import { Errors, type ParseErrorConstructor } from "../parse-error.ts";
+import type { Position } from "./location.ts";
+import type { Node } from "../types.ts";
+import type Tokenizer from "../tokenizer/index.ts";
 
 /**
  * @module util/expression-scope
@@ -47,29 +47,29 @@ There are four different expression scope
 // @see {@link https://docs.google.com/document/d/1FAvEp9EUK-G8kHfDIEo_385Hs2SUBCYbJ5H-NnLvq8M|V8 Expression Scope design docs}
  */
 
-const kExpression = 0,
+const enum ExpressionScopeType {
+  kExpression = 0,
   kMaybeArrowParameterDeclaration = 1,
   kMaybeAsyncArrowParameterDeclaration = 2,
-  kParameterDeclaration = 3;
-
-type ExpressionScopeType = 0 | 1 | 2 | 3;
+  kParameterDeclaration = 3,
+}
 
 class ExpressionScope {
-  type: ExpressionScopeType;
+  declare type: ExpressionScopeType;
 
-  constructor(type: ExpressionScopeType = kExpression) {
+  constructor(type: ExpressionScopeType = ExpressionScopeType.kExpression) {
     this.type = type;
   }
 
   canBeArrowParameterDeclaration(): this is ArrowHeadParsingScope {
     return (
-      this.type === kMaybeAsyncArrowParameterDeclaration ||
-      this.type === kMaybeArrowParameterDeclaration
+      this.type === ExpressionScopeType.kMaybeAsyncArrowParameterDeclaration ||
+      this.type === ExpressionScopeType.kMaybeArrowParameterDeclaration
     );
   }
 
   isCertainlyParameterDeclaration() {
-    return this.type === kParameterDeclaration;
+    return this.type === ExpressionScopeType.kParameterDeclaration;
   }
 }
 
@@ -82,18 +82,18 @@ type ArrowHeadParsingDeclarationError =
   | typeof Errors.AwaitBindingIdentifier;
 
 class ArrowHeadParsingScope extends ExpressionScope {
-  declarationErrors: Map<number, [ParseErrorConstructor<{}>, Position]> =
+  declarationErrors: Map<number, [ParseErrorConstructor<object>, Position]> =
     new Map();
-  constructor(type: 1 | 2) {
+  constructor(
+    type:
+      | ExpressionScopeType.kMaybeArrowParameterDeclaration
+      | ExpressionScopeType.kMaybeAsyncArrowParameterDeclaration,
+  ) {
     super(type);
   }
   recordDeclarationError(
-    ParsingErrorClass: ParseErrorConstructor<{}>,
-    {
-      at,
-    }: {
-      at: Position;
-    },
+    ParsingErrorClass: ParseErrorConstructor<object>,
+    at: Position,
   ) {
     const index = at.index;
 
@@ -133,13 +133,9 @@ export default class ExpressionScopeHandler {
    */
   recordParameterInitializerError(
     toParseError: ArrowHeadParsingParameterInitializerError,
-    {
-      at: node,
-    }: {
-      at: Node;
-    },
+    node: Node,
   ): void {
-    const origin = { at: node.loc.start };
+    const origin = node.loc.start;
     const { stack } = this;
     let i = stack.length - 1;
     let scope: ExpressionScope = stack[i];
@@ -147,7 +143,7 @@ export default class ExpressionScopeHandler {
       if (scope.canBeArrowParameterDeclaration()) {
         scope.recordDeclarationError(toParseError, origin);
       } else {
-        /*:: invariant(scope.type == kExpression) */
+        /*:: invariant(scope.type == ExpressionScopeType.kExpression) */
         // Type-Expression is the boundary where initializer error can populate to
         return;
       }
@@ -176,16 +172,12 @@ export default class ExpressionScopeHandler {
    * expression and can not be cast to pattern
    */
   recordArrowParameterBindingError(
-    error: ParseErrorConstructor<{}>,
-    {
-      at: node,
-    }: {
-      at: Node;
-    },
+    error: ParseErrorConstructor<object>,
+    node: Node,
   ): void {
     const { stack } = this;
     const scope: ExpressionScope = stack[stack.length - 1];
-    const origin = { at: node.loc.start };
+    const origin = node.loc.start;
     if (scope.isCertainlyParameterDeclaration()) {
       this.parser.raise(error, origin);
     } else if (scope.canBeArrowParameterDeclaration()) {
@@ -201,13 +193,15 @@ export default class ExpressionScopeHandler {
    * Errors will be recorded to any ancestry MaybeAsyncArrowParameterDeclaration
    * scope until an Expression scope is seen.
    */
-  recordAsyncArrowParametersError({ at }: { at: Position }): void {
+  recordAsyncArrowParametersError(at: Position): void {
     const { stack } = this;
     let i = stack.length - 1;
     let scope: ExpressionScope = stack[i];
     while (scope.canBeArrowParameterDeclaration()) {
-      if (scope.type === kMaybeAsyncArrowParameterDeclaration) {
-        scope.recordDeclarationError(Errors.AwaitBindingIdentifier, { at });
+      if (
+        scope.type === ExpressionScopeType.kMaybeAsyncArrowParameterDeclaration
+      ) {
+        scope.recordDeclarationError(Errors.AwaitBindingIdentifier, at);
       }
       scope = stack[--i];
     }
@@ -218,7 +212,7 @@ export default class ExpressionScopeHandler {
     const currentScope = stack[stack.length - 1];
     if (!currentScope.canBeArrowParameterDeclaration()) return;
     currentScope.iterateErrors(([toParseError, loc]) => {
-      this.parser.raise(toParseError, { at: loc });
+      this.parser.raise(toParseError, loc);
       // iterate from parent scope
       let i = stack.length - 2;
       let scope = stack[i];
@@ -231,15 +225,19 @@ export default class ExpressionScopeHandler {
 }
 
 export function newParameterDeclarationScope() {
-  return new ExpressionScope(kParameterDeclaration);
+  return new ExpressionScope(ExpressionScopeType.kParameterDeclaration);
 }
 
 export function newArrowHeadScope() {
-  return new ArrowHeadParsingScope(kMaybeArrowParameterDeclaration);
+  return new ArrowHeadParsingScope(
+    ExpressionScopeType.kMaybeArrowParameterDeclaration,
+  );
 }
 
 export function newAsyncArrowScope() {
-  return new ArrowHeadParsingScope(kMaybeAsyncArrowParameterDeclaration);
+  return new ArrowHeadParsingScope(
+    ExpressionScopeType.kMaybeAsyncArrowParameterDeclaration,
+  );
 }
 
 export function newExpressionScope() {

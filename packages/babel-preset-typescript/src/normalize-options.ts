@@ -10,6 +10,7 @@ export interface Options {
   jsxPragmaFrag?: string;
   onlyRemoveTypeImports?: boolean;
   optimizeConstEnums?: boolean;
+  rewriteImportExtensions?: boolean;
 
   // TODO: Remove in Babel 8
   allExtensions?: boolean;
@@ -19,7 +20,9 @@ export interface Options {
 export default function normalizeOptions(options: Options = {}) {
   let { allowNamespaces = true, jsxPragma, onlyRemoveTypeImports } = options;
 
-  const TopLevelOptions = {
+  const TopLevelOptions: {
+    [Key in keyof Omit<Options, "allowDeclareFields">]-?: Key;
+  } = {
     ignoreExtensions: "ignoreExtensions",
     allowNamespaces: "allowNamespaces",
     disallowAmbiguousJSXLike: "disallowAmbiguousJSXLike",
@@ -27,6 +30,7 @@ export default function normalizeOptions(options: Options = {}) {
     jsxPragmaFrag: "jsxPragmaFrag",
     onlyRemoveTypeImports: "onlyRemoveTypeImports",
     optimizeConstEnums: "optimizeConstEnums",
+    rewriteImportExtensions: "rewriteImportExtensions",
 
     // TODO: Remove in Babel 8
     allExtensions: "allExtensions",
@@ -34,6 +38,10 @@ export default function normalizeOptions(options: Options = {}) {
   };
 
   if (process.env.BABEL_8_BREAKING) {
+    v.invariant(
+      !("allowDeclareFields" in options),
+      "The .allowDeclareFields option has been removed and it's now always enabled. Please remove it from your config.",
+    );
     v.invariant(
       !("allExtensions" in options) && !("isTSX" in options),
       "The .allExtensions and .isTSX options have been removed.\n" +
@@ -117,6 +125,12 @@ export default function normalizeOptions(options: Options = {}) {
     false,
   );
 
+  const rewriteImportExtensions = v.validateBooleanOption(
+    TopLevelOptions.rewriteImportExtensions,
+    options.rewriteImportExtensions,
+    false,
+  );
+
   const normalized: Options = {
     ignoreExtensions,
     allowNamespaces,
@@ -125,6 +139,7 @@ export default function normalizeOptions(options: Options = {}) {
     jsxPragmaFrag,
     onlyRemoveTypeImports,
     optimizeConstEnums,
+    rewriteImportExtensions,
   };
   if (!process.env.BABEL_8_BREAKING) {
     normalized.allExtensions = allExtensions;

@@ -17,12 +17,10 @@
 import { declare } from "@babel/helper-plugin-utils";
 import syntaxRecordAndTuple from "@babel/plugin-syntax-record-and-tuple";
 import type { Options as SyntaxOptions } from "@babel/plugin-syntax-record-and-tuple";
-import { types as t } from "@babel/core";
+import { types as t, type NodePath } from "@babel/core";
 import { addNamed, isModule } from "@babel/helper-module-imports";
 import { OptionValidator } from "@babel/helper-validator-option";
-import type { NodePath } from "@babel/traverse";
 
-declare const PACKAGE_JSON: { name: string; version: string };
 const v = new OptionValidator(PACKAGE_JSON.name);
 
 export interface Options extends SyntaxOptions {
@@ -39,7 +37,7 @@ type Cache = Map<string, string>;
 type ImportCache = WeakMap<t.Program, Cache>;
 
 export default declare<State>((api, options: Options) => {
-  api.assertVersion(7);
+  api.assertVersion(REQUIRED_VERSION(7));
 
   const polyfillModuleName = v.validateStringOption(
     "polyfillModuleName",

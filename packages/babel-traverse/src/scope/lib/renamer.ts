@@ -1,10 +1,10 @@
-import type Binding from "../binding";
-import splitExportDeclaration from "@babel/helper-split-export-declaration";
+import type Binding from "../binding.ts";
 import * as t from "@babel/types";
-import type { NodePath, Visitor } from "../..";
-import { requeueComputedKeyAndDecorators } from "@babel/helper-environment-visitor";
-import { traverseNode } from "../../traverse-node";
-import { explode } from "../../visitors";
+import type { NodePath, Visitor } from "../../index.ts";
+import { traverseNode } from "../../traverse-node.ts";
+import { explode } from "../../visitors.ts";
+import { getAssignmentIdentifiers, type Identifier } from "@babel/types";
+import { requeueComputedKeyAndDecorators } from "../../path/context.ts";
 
 const renameVisitor: Visitor<Renamer> = {
   ReferencedIdentifier({ node }, state) {
@@ -22,17 +22,49 @@ const renameVisitor: Visitor<Renamer> = {
     ) {
       path.skip();
       if (path.isMethod()) {
-        requeueComputedKeyAndDecorators(path);
+        if (
+          !process.env.BABEL_8_BREAKING &&
+          !path.requeueComputedKeyAndDecorators
+        ) {
+          // See https://github.com/babel/babel/issues/16694
+          requeueComputedKeyAndDecorators.call(path);
+        } else {
+          path.requeueComputedKeyAndDecorators();
+        }
+      }
+    }
+  },
+
+  ObjectProperty({ node, scope }, state) {
+    const { name } = node.key as Identifier;
+    if (
+      node.shorthand &&
+      // In destructuring the identifier is already renamed by the
+      // AssignmentExpression|Declaration|VariableDeclarator visitor,
+      // while in object literals it's renamed later by the
+      // ReferencedIdentifier visitor.
+      (name === state.oldName || name === state.newName) &&
+      // Ignore shadowed bindings
+      scope.getBindingIdentifier(name) === state.binding.identifier
+    ) {
+      node.shorthand = false;
+      if (!process.env.BABEL_8_BREAKING) {
+        if (node.extra?.shorthand) node.extra.shorthand = false;
       }
     }
   },
 
   "AssignmentExpression|Declaration|VariableDeclarator"(
-    path: NodePath<t.AssignmentPattern | t.Declaration | t.VariableDeclarator>,
+    path: NodePath<
+      t.AssignmentExpression | t.Declaration | t.VariableDeclarator
+    >,
     state,
   ) {
     if (path.isVariableDeclaration()) return;
-    const ids = path.getOuterBindingIdentifiers();
+    const ids = path.isAssignmentExpression()
+      ? // See https://github.com/babel/babel/issues/16694
+        getAssignmentIdentifiers(path.node)
+      : path.getOuterBindingIdentifiers();
 
     for (const name in ids) {
       if (name === state.oldName) ids[name].name = state.newName;
@@ -69,11 +101,7 @@ export default class Renamer {
       return;
     }
 
-    splitExportDeclaration(
-      maybeExportDeclar as NodePath<
-        Exclude<t.ExportDeclaration, t.ExportAllDeclaration>
-      >,
-    );
+    maybeExportDeclar.splitExportDeclaration();
   }
 
   maybeConvertFromClassFunctionDeclaration(path: NodePath) {
@@ -135,15 +163,32 @@ export default class Renamer {
     const blockToTraverse = process.env.BABEL_8_BREAKING
       ? scope.block
       : (arguments[0] as t.Pattern | t.Scopable) || scope.block;
+
+    // When blockToTraverse is a SwitchStatement, the discriminant
+    // is not part of the current scope and thus should be skipped.
+
+    // const foo = {
+    //   get [x]() {
+    //     return x;
+    //   },
+    // };
+    const skipKeys: Record<string, true> = { discriminant: true };
+    if (t.isMethod(blockToTraverse)) {
+      if (blockToTraverse.computed) {
+        skipKeys.key = true;
+      }
+      if (!t.isObjectMethod(blockToTraverse)) {
+        skipKeys.decorators = true;
+      }
+    }
+
     traverseNode(
       blockToTraverse,
       explode(renameVisitor),
       scope,
       this,
       scope.path,
-      // When blockToTraverse is a SwitchStatement, the discriminant
-      // is not part of the current scope and thus should be skipped.
-      { discriminant: true },
+      skipKeys,
     );
 
     if (process.env.BABEL_8_BREAKING) {

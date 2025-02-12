@@ -1,39 +1,35 @@
 /* @noflow */
 
-import type { NodePath } from "@babel/traverse";
+import type { NodePath } from "@babel/core";
 import wrapFunction from "@babel/helper-wrap-function";
 import annotateAsPure from "@babel/helper-annotate-as-pure";
-import environmentVisitor from "@babel/helper-environment-visitor";
-import { traverse } from "@babel/core";
-import {
+import { types as t } from "@babel/core";
+import { visitors } from "@babel/traverse";
+const {
   callExpression,
   cloneNode,
   isIdentifier,
   isThisExpression,
   yieldExpression,
-} from "@babel/types";
-import type * as t from "@babel/types";
+} = t;
 
-const awaitVisitor = traverse.visitors.merge<{ wrapAwait: t.Expression }>([
-  {
-    ArrowFunctionExpression(path) {
-      path.skip();
-    },
-
-    AwaitExpression(path, { wrapAwait }) {
-      const argument = path.get("argument");
-
-      path.replaceWith(
-        yieldExpression(
-          wrapAwait
-            ? callExpression(cloneNode(wrapAwait), [argument.node])
-            : argument.node,
-        ),
-      );
-    },
+const awaitVisitor = visitors.environmentVisitor<{ wrapAwait: t.Expression }>({
+  ArrowFunctionExpression(path) {
+    path.skip();
   },
-  environmentVisitor,
-]);
+
+  AwaitExpression(path, { wrapAwait }) {
+    const argument = path.get("argument");
+
+    path.replaceWith(
+      yieldExpression(
+        wrapAwait
+          ? callExpression(cloneNode(wrapAwait), [argument.node])
+          : argument.node,
+      ),
+    );
+  },
+});
 
 export default function (
   path: NodePath<t.Function>,

@@ -1,6 +1,6 @@
 {
   "name": "@babel/plugin-transform-react-jsx-source",
-  "version": "7.19.6",
+  "version": "7.25.9",
   "description": "Add a __source prop to all JSX Elements",
   "repository": {
     "type": "git",
@@ -33,21 +33,28 @@
   "author": "The Babel Team (https://babel.dev/team)",
   "conditions": {
     "BABEL_8_BREAKING": [
-      null,
+      {
+        "engines": {
+          "node": "^18.20.0 || ^20.17.0 || >=22.8.0"
+        }
+      },
       {
         "exports": null
       }
     ],
     "USE_ESM": [
+      null,
       {
-        "type": "module"
-      },
-      null
+        "type": "commonjs"
+      }
     ]
   },
   "exports": {
-    ".": "./lib/index.js",
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./package.json": "./package.json"
   },
-  "type": "commonjs"
+  "type": "module"
 }
